@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include "graphics/Shader.h"
+#include "graphics/Primitives.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -117,7 +118,7 @@ int main() {
     // Carregamento da imagem via CPU
     int width, height, nrChannels;
     stbi_set_flip_vertically_on_load(true); // Diz ao stb_image para inverter o eixo Y
-    unsigned char *data = stbi_load("../assets/caixa.jpg", &width, &height, &nrChannels, 0);
+    unsigned char *data = stbi_load("./assets/caixa.jpg", &width, &height, &nrChannels, 0);
 
     if (data) {
         // Descobre automaticamente se a imagem tem canal Alpha ou não
@@ -132,6 +133,8 @@ int main() {
         std::cout << "Falha ao carregar a textura" << std::endl;
     }
     stbi_image_free(data); // Libera a memória RAM, pois os dados já estão na GPU
+
+    Sphere firstSphere(1.0f, 36, 18); // Raio 1.0, 36 setores, 18 stacks
 
     // Loop de Renderização
     while (!glfwWindowShouldClose(window)) {
@@ -175,6 +178,14 @@ int main() {
         // Desenha o triângulo
         glBindVertexArray(VAO);
         glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        // Pode adicionar rotações aqui se quiser ver a esfera girar
+        
+        int modelLoc2 = glGetUniformLocation(nossoShader.ID, "model");
+        glUniformMatrix4fv(modelLoc2, 1, GL_FALSE, glm::value_ptr(model));
+
+        // Desenhamos o objeto chamando o método da classe!
+        firstSphere.draw();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
