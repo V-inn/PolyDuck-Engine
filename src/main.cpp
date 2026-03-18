@@ -33,77 +33,6 @@ int main() {
     // 1. Constrói o nosso Shader Program lendo os arquivos
     Shader nossoShader("shaders/shader.vs", "shaders/shader.fs");
 
-    // 2. Define os vértices do triângulo
-    float vertices[] = {
-        // Posições (X, Y, Z)  // Texturas (U, V)
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-        0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
-        0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-        0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-        0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-        0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-        0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-
-        -0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-
-        0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-        0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-        0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-        0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-        0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-        0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-
-        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-        0.5f, -0.5f, -0.5f,  1.0f, 1.0f,
-        0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-        0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-        0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-        0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-        0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f
-    };
-
-    // 3. Configura a memória da GPU (VAO e VBO)
-    unsigned int VBO, VAO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-
-    // Diz ao OpenGL que o VAO atual é o nosso
-    glBindVertexArray(VAO);
-
-    // Copia o array de vértices para o VBO na GPU
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    // Diz ao VAO como interpretar os dados no VBO (3 floats por vértice)
-    // Atributo de Posição (layout 0, 3 floats, começa no byte 0)
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // Atributo de Textura UV (layout 1, 2 floats, começa depois de 3 floats)
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // Desvincula o VBO e o VAO por segurança
-    glBindBuffer(GL_ARRAY_BUFFER, 0); 
-    glBindVertexArray(0); 
-
     // Geração e configuração da Textura no OpenGL
     unsigned int texture;
     glGenTextures(1, &texture);
@@ -118,7 +47,7 @@ int main() {
     // Carregamento da imagem via CPU
     int width, height, nrChannels;
     stbi_set_flip_vertically_on_load(true); // Diz ao stb_image para inverter o eixo Y
-    unsigned char *data = stbi_load("./assets/caixa.jpg", &width, &height, &nrChannels, 0);
+    unsigned char *data = stbi_load("./assets/earth.jpg", &width, &height, &nrChannels, 0);
 
     if (data) {
         // Descobre automaticamente se a imagem tem canal Alpha ou não
@@ -134,7 +63,20 @@ int main() {
     }
     stbi_image_free(data); // Libera a memória RAM, pois os dados já estão na GPU
 
-    Sphere firstSphere(1.0f, 36, 18); // Raio 1.0, 36 setores, 18 stacks
+
+    //Box firstBox(1.0f, 1.0f, 1.0f);
+    //Cylinder firstCylinder(0.5f, 0.5f, 1.0f, 36);
+    Sphere firstSphere(0.5f, 10, 5);
+
+    // Posição estática da câmera (lembra que movemos o mundo -3 no eixo Z? 
+    // Logo, a nossa câmera está em +3 no eixo Z do mundo real!)
+    glm::vec3 viewPos(0.0f, 0.0f, 3.0f);
+
+    // Cor da luz (Branca pura)
+    glm::vec3 lightColor(1.0f, 1.0f, 1.0f);
+
+    // Posição inicial da luz no mundo 3D
+    glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
 
     // Loop de Renderização
     while (!glfwWindowShouldClose(window)) {
@@ -143,8 +85,28 @@ int main() {
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 4. Ativa o shader e desenha o triângulo
+        // 4. Ativa o shader
         nossoShader.use();
+
+        // --- INÍCIO DA ILUMINAÇÃO ---
+        
+        // (Opcional) Animando a luz para ela orbitar o seu objeto!
+        lightPos.x = -5.0f * sin(glfwGetTime());
+        lightPos.z = -5.0f * cos(glfwGetTime());
+
+        // Envia a Posição da Luz
+        int lightPosLoc = glGetUniformLocation(nossoShader.ID, "lightPos");
+        glUniform3fv(lightPosLoc, 1, glm::value_ptr(lightPos));
+
+        // Envia a Posição da Câmera (necessária para o reflexo Especular)
+        int viewPosLoc = glGetUniformLocation(nossoShader.ID, "viewPos");
+        glUniform3fv(viewPosLoc, 1, glm::value_ptr(viewPos));
+
+        // Envia a Cor da Luz
+        int lightColorLoc = glGetUniformLocation(nossoShader.ID, "lightColor");
+        glUniform3fv(lightColorLoc, 1, glm::value_ptr(lightColor));
+        
+        // --- FIM DA ILUMINAÇÃO ---
 
         // --- INÍCIO DA MATEMÁTICA MVP ---
         
@@ -175,25 +137,15 @@ int main() {
         int projLoc = glGetUniformLocation(nossoShader.ID, "projection");
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-        // Desenha o triângulo
-        glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
-
-        // Pode adicionar rotações aqui se quiser ver a esfera girar
-        
-        int modelLoc2 = glGetUniformLocation(nossoShader.ID, "model");
-        glUniformMatrix4fv(modelLoc2, 1, GL_FALSE, glm::value_ptr(model));
-
         // Desenhamos o objeto chamando o método da classe!
+        //firstBox.draw();
+        //firstCylinder.draw();
         firstSphere.draw();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
-    // Limpeza de memória
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
     glfwTerminate();
     return 0;
 }
