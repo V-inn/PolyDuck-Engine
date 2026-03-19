@@ -39,7 +39,23 @@ include_directories(include)
 
 
 # Cria o executável juntando o seu main e o arquivo C do glad
-add_executable(Engine3D src/main.cpp src/glad.c src/graphics/Shader.cpp src/stb_image.cpp src/graphics/Primitives.cpp)
+add_executable(Engine3D src/main.cpp
+                src/glad.c 
+                src/graphics/Shader.cpp 
+                src/stb_image.cpp 
+                src/graphics/Primitives.cpp
+                src/tiny_obj_loader.cpp
+                src/graphics/Model.cpp 
+                src/graphics/UiManager.cpp
+                include/imgui/imgui.cpp 
+                include/imgui/imgui_tables.cpp 
+                include/imgui/imgui_widgets.cpp 
+                include/imgui/imgui_draw.cpp 
+                include/imgui/backends/imgui_impl_glfw.cpp 
+                include/imgui/backends/imgui_impl_opengl3.cpp 
+                )
+
+target_include_directories(Engine3D PRIVATE include include/imgui)
 
 # Encontra a biblioteca base do OpenGL no seu sistema operacional
 find_package(OpenGL REQUIRED)
@@ -50,3 +66,4 @@ target_link_libraries(Engine3D PRIVATE glfw OpenGL::GL glm::glm)
 # Copia a pasta de shaders da raiz do projeto para a pasta de build
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/include/imgui DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

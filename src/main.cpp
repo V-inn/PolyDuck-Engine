@@ -7,14 +7,80 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <stb_image.h>
+#include "graphics/Model.h"
+#include "graphics/Camera.h"
+#include "graphics/SceneState.h"
+#include "graphics/UiManager.h"
+
+// Instancia a câmera globalmente
+Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+
+// Variáveis de controle do mouse e tempo
+float lastX = 800.0f / 2.0;
+float lastY = 600.0f / 2.0;
+bool firstMouse = true;
+
+// Variáveis de tempo (DeltaTime garante que a velocidade seja a mesma em qualquer PC)
+float deltaTime = 0.0f; 
+float lastFrame = 0.0f;
+
+bool uiMode = false; // Começa no modo Câmera (falso)
+bool tabKeyPressed = false; // Para evitar que a tecla ative várias vezes num único clique
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
+void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
+    if (uiMode) return;
+
+    float xpos = static_cast<float>(xposIn);
+    float ypos = static_cast<float>(yposIn);
+
+    if (firstMouse) {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
+
+    float xoffset = xpos - lastX;
+    float yoffset = lastY - ypos; // Invertido: coordenadas Y vão de baixo para cima no OpenGL
+
+    lastX = xpos;
+    lastY = ypos;
+    
+    camera.ProcessMouseMovement(xoffset, yoffset);
+}
+
 void processInput(GLFWwindow *window) {
-    if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+
+    // Lógica de Toggle (Alternar) com a tecla TAB
+    if (glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS) {
+        if (!tabKeyPressed) {
+            uiMode = !uiMode; // Inverte o modo
+            if (uiMode) {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL); // Solta o mouse
+            } else {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // Prende o mouse
+                firstMouse = true; // Evita um "pulo" brusco da câmera ao voltar
+            }
+            tabKeyPressed = true;
+        }
+    } else {
+        tabKeyPressed = false; // Reseta quando a tecla é solta
+    }
+
+    // Só move a câmera pelo teclado se NÃO estivermos no modo UI
+    if (!uiMode) {
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.ProcessKeyboard(FORWARD, deltaTime);
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.ProcessKeyboard(BACKWARD, deltaTime);
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.ProcessKeyboard(LEFT, deltaTime);
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.ProcessKeyboard(RIGHT, deltaTime);
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) camera.ProcessKeyboard(DOWN, deltaTime);
+        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) camera.ProcessKeyboard(UP, deltaTime);
+    }
 }
 
 int main() {
@@ -65,8 +131,10 @@ int main() {
 
 
     //Box firstBox(1.0f, 1.0f, 1.0f);
-    //Cylinder firstCylinder(0.5f, 0.5f, 1.0f, 36);
-    Sphere firstSphere(0.5f, 10, 5);
+    //Cylinder firstCylinder(0.5f, 0.0f, 1.0f, 36);
+    //Sphere firstSphere(0.5f, 10, 5);
+    //Plane groundPlane(4.0f, 4.0f, 10, 10);
+    Model newModel("./assets/suzanne.obj");
 
     // Posição estática da câmera (lembra que movemos o mundo -3 no eixo Z? 
     // Logo, a nossa câmera está em +3 no eixo Z do mundo real!)
@@ -78,69 +146,74 @@ int main() {
     // Posição inicial da luz no mundo 3D
     glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
 
+    // Controle de visualização
+    bool wireframeMode = false;
+
+    // Transformações do Objeto
+    glm::vec3 objPosition(0.0f, 0.0f, 0.0f);
+    glm::vec3 objRotation(0.0f, 0.0f, 0.0f); // Em graus
+    glm::vec3 objScale(1.0f, 1.0f, 1.0f);
+
+    glfwSetCursorPosCallback(window, mouse_callback);
+    // Esconde o cursor e o "prende" dentro da janela (estilo FPS)
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+    SceneState sceneState;
+    UIManager uiManager(window);
+
     // Loop de Renderização
     while (!glfwWindowShouldClose(window)) {
+        float currentFrame = static_cast<float>(glfwGetTime());
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+
         processInput(window);
 
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 4. Ativa o shader
+        uiManager.beginFrame();
+        uiManager.render(sceneState);
+
         nossoShader.use();
 
-        // --- INÍCIO DA ILUMINAÇÃO ---
-        
-        // (Opcional) Animando a luz para ela orbitar o seu objeto!
-        lightPos.x = -5.0f * sin(glfwGetTime());
-        lightPos.z = -5.0f * cos(glfwGetTime());
-
-        // Envia a Posição da Luz
-        int lightPosLoc = glGetUniformLocation(nossoShader.ID, "lightPos");
-        glUniform3fv(lightPosLoc, 1, glm::value_ptr(lightPos));
-
-        // Envia a Posição da Câmera (necessária para o reflexo Especular)
-        int viewPosLoc = glGetUniformLocation(nossoShader.ID, "viewPos");
-        glUniform3fv(viewPosLoc, 1, glm::value_ptr(viewPos));
-
-        // Envia a Cor da Luz
-        int lightColorLoc = glGetUniformLocation(nossoShader.ID, "lightColor");
-        glUniform3fv(lightColorLoc, 1, glm::value_ptr(lightColor));
-        
-        // --- FIM DA ILUMINAÇÃO ---
-
-        // --- INÍCIO DA MATEMÁTICA MVP ---
-        
-        // 1. MODEL: Usamos glfwGetTime() para pegar o tempo em segundos desde que a janela abriu.
-        // Multiplicamos por um ângulo para a velocidade da rotação e escolhemos eixos X e Y.
-        glm::mat4 model = glm::mat4(1.0f);
-        float timeValue = glfwGetTime();
-        model = glm::rotate(model, timeValue * glm::radians(50.0f), glm::vec3(0.5f, 1.0f, 0.0f));
-
-        // 2. VIEW: O OpenGL fica na coordenada (0,0,0) olhando para o eixo Z negativo.
-        // Para vermos o objeto, precisamos mover o mundo "para trás" (Z negativo).
-        glm::mat4 view = glm::mat4(1.0f);
-        view = glm::translate(view, glm::vec3(0.0f, 0.0f, -3.0f));
-
-        // 3. PROJECTION: Cria a perspectiva. FOV de 45 graus, proporção de tela 800/600,
-        // e limites de visão entre 0.1 e 100.0 unidades de distância.
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
-        
-        // --- FIM DA MATEMÁTICA MVP ---
-
-        // Envia as matrizes para o Shader
-        int modelLoc = glGetUniformLocation(nossoShader.ID, "model");
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-        
-        int viewLoc = glGetUniformLocation(nossoShader.ID, "view");
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-        
+        // 1. PROJEÇÃO (A Lente Dinâmica que se ajusta ao tamanho da tela)
+        int width, height;
+        glfwGetWindowSize(window, &width, &height);
+        if (height == 0) height = 1; 
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 100.0f);
         int projLoc = glGetUniformLocation(nossoShader.ID, "projection");
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-        // Desenhamos o objeto chamando o método da classe!
-        //firstBox.draw();
-        //firstCylinder.draw();
-        firstSphere.draw();
+        // 2. VISUALIZAÇÃO (A Câmera FPS)
+        glm::mat4 view = camera.GetViewMatrix();
+        int viewLoc = glGetUniformLocation(nossoShader.ID, "view");
+        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+        // 3. MODELO (As Transformações lendo os dados da Interface!)
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, sceneState.objPosition);
+        model = glm::rotate(model, glm::radians(sceneState.objRotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(sceneState.objRotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(sceneState.objRotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
+        model = glm::scale(model, sceneState.objScale);
+        
+        int modelLoc = glGetUniformLocation(nossoShader.ID, "model");
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+        // 4. LUZ E MATERIAIS (Lendo os dados da Interface!)
+        int lightColorLoc = glGetUniformLocation(nossoShader.ID, "lightColor");
+        glUniform3fv(lightColorLoc, 1, glm::value_ptr(sceneState.lightColor));
+
+        int lightPosLoc = glGetUniformLocation(nossoShader.ID, "lightPos");
+        glUniform3fv(lightPosLoc, 1, glm::value_ptr(sceneState.lightPos));
+
+        int viewPosLoc = glGetUniformLocation(nossoShader.ID, "viewPos");
+        glUniform3fv(viewPosLoc, 1, glm::value_ptr(camera.Position));
+
+        newModel.draw();
+
+        uiManager.endFrame();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
