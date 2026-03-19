@@ -4,6 +4,10 @@
 #include <imgui/backends/imgui_impl_opengl3.h>
 #include <glm/gtc/type_ptr.hpp>
 
+double modulo(double x, double y) {
+    return fmod(fmod(x, y) + y, y);
+}
+
 UIManager::UIManager(GLFWwindow* window) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -43,6 +47,10 @@ void UIManager::render(SceneState& state) {
         else glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
     ImGui::Separator();
+
+    state.objRotation.x = modulo(state.objRotation.x, 360.0f);
+    state.objRotation.y = modulo(state.objRotation.y, 360.0f);
+    state.objRotation.z = modulo(state.objRotation.z, 360.0f);
 
     ImGui::Text("Transformação do Objeto");
     ImGui::DragFloat3("Posição", glm::value_ptr(state.objPosition), 0.05f);
