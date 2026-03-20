@@ -1,49 +1,65 @@
 #version 330 core
 out vec4 FragColor;
 
-// Entradas recebidas do Vertex Shader
 in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoord;
 
-// Variáveis Uniformes vindas do C++
-uniform sampler2D ourTexture;
-uniform vec3 lightPos;   // Onde está a lâmpada?
-uniform vec3 viewPos;    // Onde está a câmera?
-uniform vec3 lightColor; // Qual a cor da luz? (ex: 1.0, 1.0, 1.0 para branco)
+// Variáveis de Material
+uniform sampler2D texture1;
+uniform vec4 uBaseColor;
+uniform bool uHasTexture; 
+uniform bool uAffectedByLight; 
+
+// Sistema de Múltiplas Luzes
+#define MAX_LIGHTS 10
+uniform vec3 lightPos[MAX_LIGHTS];
+uniform vec3 lightColor[MAX_LIGHTS];
+uniform int numLights; 
+
+uniform vec3 viewPos;
 
 void main()
 {
-    // Forças da iluminação (você pode transformar isso em uniforms depois!)
-    float ambientStrength = 0.1;
-    float specularStrength = 0.5;
-    float shininess = 32.0; // O quão "focado" é o reflexo (quanto maior, mais metálico/plástico)
+    // Lê a textura garantida (vai ser a imagem ou o pixel branco 1x1)
+    vec4 texColor = texture(texture1, TexCoord);
+    
+    // Mistura a textura com a Cor Base do Inspetor
+    vec4 baseResult = texColor * uBaseColor;
 
-    // 1. LUZ AMBIENTE (Ambient)
-    // Garante que o objeto não fique 100% preto nas sombras
-    vec3 ambient = ambientStrength * lightColor;
+    // Se ignorar luz (Billboards), devolve a cor pura
+    if (!uAffectedByLight) {
+        FragColor = baseResult;
+        return;
+    }
 
-    // 2. LUZ DIFUSA (Diffuse)
-    // Calcula o impacto direto da luz na superfície
+    // --- MATEMÁTICA DE ILUMINAÇÃO (O coração do Shader!) ---
     vec3 norm = normalize(Normal);
-    vec3 lightDir = normalize(lightPos - FragPos);
-    
-    // O Dot Product retorna 1 se a luz bate de frente, e 0 se bate de lado.
-    float diff = max(dot(norm, lightDir), 0.0);
-    vec3 diffuse = diff * lightColor;
-
-    // 3. LUZ ESPECULAR (Specular)
-    // Calcula o brilho refletido em direção ao olho do jogador
     vec3 viewDir = normalize(viewPos - FragPos);
-    vec3 reflectDir = reflect(-lightDir, norm);  
     
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
-    vec3 specular = specularStrength * spec * lightColor;  
+    // Luz ambiente fixa (fraquinha, para não ficar 100% preto nas sombras)
+    vec3 ambient = 0.1 * vec3(1.0);
+    vec3 finalLighting = vec3(0.0);
 
-    // RESULTADO FINAL
-    // Somamos as três luzes e multiplicamos pela cor da textura
-    vec4 texColor = texture(ourTexture, TexCoord);
-    vec3 result = (ambient + diffuse + specular) * texColor.rgb;
-    
-    FragColor = vec4(result, texColor.a);
+    // Soma o poder de cada luz que existe na cena
+    for(int i = 0; i < numLights; i++) {
+        // A. Luz Difusa (Onde a luz bate de frente)
+        vec3 lightDir = normalize(lightPos[i] - FragPos);
+        float diff = max(dot(norm, lightDir), 0.0);
+        vec3 diffuse = diff * lightColor[i];
+
+        // B. Luz Especular (O brilho refletido)
+        vec3 reflectDir = reflect(-lightDir, norm);
+        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // 32.0 é o Shininess padrão
+        vec3 specular = spec * lightColor[i];
+
+        // C. Atenuação (A luz enfraquece com a distância)
+        float distance = length(lightPos[i] - FragPos);
+        float attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * (distance * distance));
+
+        finalLighting += (diffuse + specular) * attenuation;
+    }
+
+    // 4. Aplica a iluminação final ao objeto!
+    FragColor = vec4(ambient + finalLighting, 1.0) * baseResult;
 }

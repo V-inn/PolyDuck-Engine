@@ -11,6 +11,7 @@
 #include "graphics/Camera.h"
 #include "graphics/SceneState.h"
 #include "graphics/UiManager.h"
+#include "scene/Scene.h"
 
 // Instancia a câmera globalmente
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -89,70 +90,53 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Minha Engine 3D", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1200, 800, "Minha Engine 3D", NULL, NULL);
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     // 1. Constrói o nosso Shader Program lendo os arquivos
     Shader nossoShader("shaders/shader.vs", "shaders/shader.fs");
 
-    // Geração e configuração da Textura no OpenGL
-    unsigned int texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
+    Shader unshadedShader("shaders/unshaded.vs", "shaders/unshaded.fs");
 
-    // Define como a textura deve se comportar se for esticada ou encolhida
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    // --- CARREGAR O ÍCONE DA LUZ ---
+    unsigned int lightIconTexture;
+    glGenTextures(1, &lightIconTexture);
+    glBindTexture(GL_TEXTURE_2D, lightIconTexture);
+    
+    // Configurações para imagens transparentes (Clamp to Edge evita bordas estranhas)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    // Carregamento da imagem via CPU
-    int width, height, nrChannels;
-    stbi_set_flip_vertically_on_load(true); // Diz ao stb_image para inverter o eixo Y
-    unsigned char *data = stbi_load("./assets/earth.jpg", &width, &height, &nrChannels, 0);
-
-    if (data) {
-        // Descobre automaticamente se a imagem tem canal Alpha ou não
-        GLenum format;
-        if (nrChannels == 3) format = GL_RGB;
-        else if (nrChannels == 4) format = GL_RGBA;
-
-        // Envia os pixels para a Memória da Placa de Vídeo usando o formato correto
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+    int w, h, nrC;
+    // Opcional: Se a sua imagem estiver de cabeça para baixo, mantenha o stbi_set_flip_vertically_on_load(true);
+    unsigned char *iconData = stbi_load("assets/light-icon.png", &w, &h, &nrC, 0);
+    
+    if (iconData) {
+        GLenum format = (nrC == 4) ? GL_RGBA : GL_RGB;
+        glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, format, GL_UNSIGNED_BYTE, iconData);
         glGenerateMipmap(GL_TEXTURE_2D);
     } else {
-        std::cout << "Falha ao carregar a textura" << std::endl;
+        // O C++ AGORA VAI DEDURAR O MOTIVO REAL!
+        std::cout << "Aviso: Falha ao carregar light-icon.png!" << std::endl;
+        std::cout << "Motivo do erro: " << stbi_failure_reason() << std::endl;
     }
-    stbi_image_free(data); // Libera a memória RAM, pois os dados já estão na GPU
+    stbi_image_free(iconData);
 
+    // Instanciação das Primitivas (Agora elas ficam na memória aguardando serem usadas)
+    Plane groundPlane(10.0f, 10.0f, 20, 20); 
 
-    //Box firstBox(1.0f, 1.0f, 1.0f);
-    //Cylinder firstCylinder(0.5f, 0.0f, 1.0f, 36);
-    //Sphere firstSphere(0.5f, 10, 5);
-    //Plane groundPlane(4.0f, 4.0f, 10, 10);
-    Model newModel("./assets/suzanne.obj");
+    // Criando a Cena e Populando o Grafo!
+    Scene minhaCena;
 
-    // Posição estática da câmera (lembra que movemos o mundo -3 no eixo Z? 
-    // Logo, a nossa câmera está em +3 no eixo Z do mundo real!)
-    glm::vec3 viewPos(0.0f, 0.0f, 3.0f);
-
-    // Cor da luz (Branca pura)
-    glm::vec3 lightColor(1.0f, 1.0f, 1.0f);
-
-    // Posição inicial da luz no mundo 3D
-    glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
-
-    // Controle de visualização
-    bool wireframeMode = false;
-
-    // Transformações do Objeto
-    glm::vec3 objPosition(0.0f, 0.0f, 0.0f);
-    glm::vec3 objRotation(0.0f, 0.0f, 0.0f); // Em graus
-    glm::vec3 objScale(1.0f, 1.0f, 1.0f);
+    Sphere originDot(0.02f, 10, 5);
 
     glfwSetCursorPosCallback(window, mouse_callback);
     // Esconde o cursor e o "prende" dentro da janela (estilo FPS)
@@ -173,45 +157,125 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         uiManager.beginFrame();
-        uiManager.render(sceneState);
+        uiManager.render(sceneState, minhaCena);
 
-        nossoShader.use();
-
-        // 1. PROJEÇÃO (A Lente Dinâmica que se ajusta ao tamanho da tela)
+        // Pega tamanho da tela e calcula Projection/View (Iguais para todos)
         int width, height;
         glfwGetWindowSize(window, &width, &height);
         if (height == 0) height = 1; 
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 100.0f);
-        int projLoc = glGetUniformLocation(nossoShader.ID, "projection");
-        glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-
-        // 2. VISUALIZAÇÃO (A Câmera FPS)
         glm::mat4 view = camera.GetViewMatrix();
-        int viewLoc = glGetUniformLocation(nossoShader.ID, "view");
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
-        // 3. MODELO (As Transformações lendo os dados da Interface!)
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, sceneState.objPosition);
-        model = glm::rotate(model, glm::radians(sceneState.objRotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
-        model = glm::rotate(model, glm::radians(sceneState.objRotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
-        model = glm::rotate(model, glm::radians(sceneState.objRotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
-        model = glm::scale(model, sceneState.objScale);
+        // ---------------------------------------------------------------------
+        // CAÇADOR DE LUZES (Guarda as luzes numa lista)
+        // ---------------------------------------------------------------------
+        std::vector<SceneNode*> listaDeLuzes;
+        for (auto node : minhaCena.root->children) {
+            if (node->type == NodeType::LIGHT) {
+                listaDeLuzes.push_back(node);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // FASE 1: DESENHAR O EDITOR (Ground Grid e Ponto Central)
+        // ---------------------------------------------------------------------
+        unshadedShader.use();
+        unshadedShader.setMat4("projection", projection);
+        unshadedShader.setMat4("view", view);
+
+        // A. Desenhar o Ground Plane como um Grid Verde
+        glm::mat4 groundModel = glm::mat4(1.0f);
+        groundModel = glm::translate(groundModel, glm::vec3(0.0f, -0.01f, 0.0f)); 
+        unshadedShader.setMat4("model", groundModel);
         
-        int modelLoc = glGetUniformLocation(nossoShader.ID, "model");
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); 
+        unshadedShader.setVec3("uColor", glm::vec3(0.1f, 0.1f, 0.1f)); 
+        groundPlane.draw();
+        
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // Reseta o preenchimento
 
-        // 4. LUZ E MATERIAIS (Lendo os dados da Interface!)
-        int lightColorLoc = glGetUniformLocation(nossoShader.ID, "lightColor");
-        glUniform3fv(lightColorLoc, 1, glm::value_ptr(sceneState.lightColor));
+        // B. Desenhar o Ponto Central (Origin Dot)
+        glm::mat4 dotModel = glm::mat4(1.0f);
+        unshadedShader.setMat4("model", dotModel);
+        unshadedShader.setVec3("uColor", glm::vec3(1.0f, 0.0f, 0.0f)); 
+        originDot.draw();
 
-        int lightPosLoc = glGetUniformLocation(nossoShader.ID, "lightPos");
-        glUniform3fv(lightPosLoc, 1, glm::value_ptr(sceneState.lightPos));
+        // ---------------------------------------------------------------------
+        // FASE 2: DESENHAR A CENA 3D (Onde o erro estava!)
+        // ---------------------------------------------------------------------
+        if (!sceneState.wireframeMode) {
+            // MODO NORMAL COM LUZES
+            nossoShader.use();
+            
+            // AGORA SIM! Enviando a Câmera para o Shader com luzes
+            nossoShader.setMat4("projection", projection);
+            nossoShader.setMat4("view", view);
+            nossoShader.setVec3("viewPos", camera.Position);
+            
+            int countLuzes = std::min((int)listaDeLuzes.size(), 10);
+            nossoShader.setInt("numLights", countLuzes);
 
-        int viewPosLoc = glGetUniformLocation(nossoShader.ID, "viewPos");
-        glUniform3fv(viewPosLoc, 1, glm::value_ptr(camera.Position));
+            for (int i = 0; i < countLuzes; i++) {
+                std::string posName = "lightPos[" + std::to_string(i) + "]";
+                std::string colName = "lightColor[" + std::to_string(i) + "]";
+                
+                nossoShader.setVec3(posName, listaDeLuzes[i]->position);
+                nossoShader.setVec3(colName, listaDeLuzes[i]->lightColor * listaDeLuzes[i]->lightIntensity);
+            }
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        } else {
+            // MODO WIREFRAME (Sem luz, usa o unshadedShader)
+            unshadedShader.use();
+            unshadedShader.setMat4("projection", projection);
+            unshadedShader.setMat4("view", view);
+            unshadedShader.setVec3("uColor", glm::vec3(1.0f, 0.5f, 0.0f)); // Cor das linhas do Wireframe
+            
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        }
 
-        newModel.draw();
+        // Desenha todos os objetos da árvore de uma vez
+        minhaCena.draw(sceneState.wireframeMode ? unshadedShader : nossoShader, view);
+
+        // ---------------------------------------------------------------------
+        // FASE 3: DESENHAR OS ÍCONES DE LÂMPADA (Billboards Transparentes)
+        // ---------------------------------------------------------------------
+        // Desenhamos por último para a transparência do .png não "furar" o cenário 3D!
+        if (!sceneState.wireframeMode) {
+            nossoShader.use();
+            nossoShader.setMat4("projection", projection);
+            nossoShader.setMat4("view", view);
+            nossoShader.setBool("uAffectedByLight", false); 
+            nossoShader.setBool("uHasTexture", true); // <-- OBRIGATÓRIO AQUI!
+            
+            glBindTexture(GL_TEXTURE_2D, lightIconTexture);
+
+            for (auto luz : listaDeLuzes) {
+                glm::mat4 iconModel = glm::mat4(1.0f);
+                iconModel = glm::translate(iconModel, luz->position);
+                
+                // Matemática do Billboard (Encarar a câmara)
+                iconModel[0][0] = view[0][0]; iconModel[0][1] = view[1][0]; iconModel[0][2] = view[2][0];
+                iconModel[1][0] = view[0][1]; iconModel[1][1] = view[1][1]; iconModel[1][2] = view[2][1];
+                iconModel[2][0] = view[0][2]; iconModel[2][1] = view[1][2]; iconModel[2][2] = view[2][2];
+                
+                iconModel = glm::rotate(iconModel, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                iconModel = glm::scale(iconModel, glm::vec3(0.025f)); // Ajuste este valor se o ícone ficar muito grande
+                
+                nossoShader.setMat4("model", iconModel);
+                
+                // Pinta o ícone .png usando a cor escolhida para a luz no Inspetor!
+                glUniform4f(glGetUniformLocation(nossoShader.ID, "uBaseColor"), luz->lightColor.r, luz->lightColor.g, luz->lightColor.b, 1.0f);
+                
+                groundPlane.draw(); 
+            }
+        }
+        // --- Fim da Fase 3 ---
+
+        // Desenha todos os objetos da árvore de uma vez
+        minhaCena.draw(sceneState.wireframeMode ? unshadedShader : nossoShader, view);
+
+        // Reseta o modo de desenho para Fill antes de desenhar a UI (O ImGui precisa disso)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); 
 
         uiManager.endFrame();
 

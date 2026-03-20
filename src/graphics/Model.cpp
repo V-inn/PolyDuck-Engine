@@ -1,4 +1,4 @@
-#include "Model.h"
+#include "graphics/Model.h"
 #include <tiny_obj_loader.h>
 #include <iostream>
 #include <map>
