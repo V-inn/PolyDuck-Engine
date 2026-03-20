@@ -7,6 +7,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "graphics/Primitives.h"
 #include "graphics/Shader.h"
+#include "graphics/Material.h"
 
 // 1. As nossas categorias oficiais!
 enum class NodeType { MESH, LIGHT, CAMERA, FOLDER, BILLBOARD };
@@ -29,11 +30,9 @@ public:
     // Câmera
     float fov;
 
-    // Malha (Mesh)
-    glm::vec4 baseColor; // RGBA (O 'A' é a transparência!)
     bool affectedByLight;
 
-    unsigned int textureID;
+    Material material;
 
     SceneNode* parent;
     std::vector<SceneNode*> children;

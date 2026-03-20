@@ -74,6 +74,8 @@ void UIManager::beginFrame() {
 }
 
 void UIManager::render(SceneState& state, Scene& scene) {
+    static int currentTextureTarget = 0;
+
     // ---------------------------------------------------
     // 0. MAIN MENU BAR (A barra superior clássica!)
     // ---------------------------------------------------
@@ -158,12 +160,23 @@ void UIManager::render(SceneState& state, Scene& scene) {
         ImGui::Separator();
         
         // 4. PAINEL DINÂMICO
-        if (state.selectedNode->type == NodeType::MESH) {
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "[Malha 3D]");
-            // ColorEdit4 ao invés de 3, para termos a barrinha de Alpha (Transparência)!
-            ImGui::ColorEdit4("Cor Base", glm::value_ptr(state.selectedNode->baseColor));
+        if (state.selectedNode->type == NodeType::MESH || state.selectedNode->type == NodeType::BILLBOARD) {
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "[Material]");
+            ImGui::ColorEdit4("Cor Base", glm::value_ptr(state.selectedNode->material.baseColor));
+            
+            if (state.selectedNode->affectedByLight) {
+                ImGui::SliderFloat("Forca do Reflexo", &state.selectedNode->material.specularStrength, 0.0f, 1.0f);
+                ImGui::SliderFloat("Polimento (Shininess)", &state.selectedNode->material.shininess, 2.0f, 256.0f);
+            }
+            
+            // --- NOVO: SELETOR DE ALVO DE TEXTURA ---
+            ImGui::Separator();
+            ImGui::Text("Aplicar textura clicada como:");
+            ImGui::RadioButton("Diffuse Map (Cor)", &currentTextureTarget, 0); ImGui::SameLine();
+            ImGui::RadioButton("Specular Map (Brilho)", &currentTextureTarget, 1);
+
             ImGui::Checkbox("Afetado pela Iluminacao", &state.selectedNode->affectedByLight);
-        } 
+        }
         else if (state.selectedNode->type == NodeType::LIGHT) {
             ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.2f, 1.0f), "[Luz]");
             ImGui::ColorEdit3("Cor da Luz", glm::value_ptr(state.selectedNode->lightColor));
@@ -175,8 +188,8 @@ void UIManager::render(SceneState& state, Scene& scene) {
         }
         else if (state.selectedNode->type == NodeType::BILLBOARD) {
             ImGui::TextColored(ImVec4(0.6f, 1.0f, 0.6f, 1.0f), "[Billboard 2D]");
-            ImGui::Text("Textura: %s", (state.selectedNode->textureID == 0) ? "Nenhuma (Clique em um .png abaixo)" : "Carregada!");
-            ImGui::ColorEdit4("Cor/Filtro", glm::value_ptr(state.selectedNode->baseColor));
+            ImGui::Text("Textura: %s", (state.selectedNode->material.diffuseMap == 0) ? "Nenhuma (Clique em um .png abaixo)" : "Carregada!");
+            ImGui::ColorEdit4("Cor/Filtro", glm::value_ptr(state.selectedNode->material.baseColor));
             ImGui::Checkbox("Afetado pela Iluminacao", &state.selectedNode->affectedByLight);
         }
     } else {
@@ -213,12 +226,16 @@ void UIManager::render(SceneState& state, Scene& scene) {
         else if (extension == ".jpg" || extension == ".png") {
             std::string buttonLabel = "[IMG] " + filename;
             if (ImGui::Button(buttonLabel.c_str())) {
-                // Se eu clicar numa imagem e tiver um Billboard selecionado...
-                if (state.selectedNode != nullptr && state.selectedNode->type == NodeType::BILLBOARD) {
-                    // Carrega a textura e injeta o ID no nó selecionado!
-                    state.selectedNode->textureID = CarregarTexturaDoArquivo(path.c_str());
-                    // Bônus: Reseta a cor base para branco puro para não filtrar a imagem
-                    state.selectedNode->baseColor = glm::vec4(1.0f); 
+                if (state.selectedNode != nullptr) {
+                    unsigned int novaTextura = CarregarTexturaDoArquivo(path.c_str());
+                    
+                    if (currentTextureTarget == 0) {
+                        state.selectedNode->material.diffuseMap = novaTextura;
+                        std::cout << "Diffuse Map aplicado!" << std::endl;
+                    } else if (currentTextureTarget == 1) {
+                        state.selectedNode->material.specularMap = novaTextura;
+                        std::cout << "Specular Map aplicado!" << std::endl;
+                    }
                 }
             }
         }

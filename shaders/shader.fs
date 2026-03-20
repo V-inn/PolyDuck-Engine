@@ -5,11 +5,15 @@ in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoord;
 
-// Variáveis de Material
-uniform sampler2D texture1;
+uniform sampler2D diffuseMap;
+uniform sampler2D specularMap;
+uniform bool uHasSpecularMap;
+
 uniform vec4 uBaseColor;
-uniform bool uHasTexture; 
-uniform bool uAffectedByLight; 
+uniform bool uAffectedByLight;
+
+uniform float uSpecularStrength;
+uniform float uShininess;
 
 // Sistema de Múltiplas Luzes
 #define MAX_LIGHTS 10
@@ -21,45 +25,52 @@ uniform vec3 viewPos;
 
 void main()
 {
-    // Lê a textura garantida (vai ser a imagem ou o pixel branco 1x1)
-    vec4 texColor = texture(texture1, TexCoord);
-    
-    // Mistura a textura com a Cor Base do Inspetor
+    vec4 texColor = texture(diffuseMap, TexCoord);
     vec4 baseResult = texColor * uBaseColor;
 
-    // Se ignorar luz (Billboards), devolve a cor pura
     if (!uAffectedByLight) {
         FragColor = baseResult;
         return;
     }
 
-    // --- MATEMÁTICA DE ILUMINAÇÃO (O coração do Shader!) ---
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(viewPos - FragPos);
     
-    // Luz ambiente fixa (fraquinha, para não ficar 100% preto nas sombras)
     vec3 ambient = 0.1 * vec3(1.0);
-    vec3 finalLighting = vec3(0.0);
+    
+    // Separamos as luzes!
+    vec3 totalDiffuse = vec3(0.0);
+    vec3 totalSpecular = vec3(0.0);
 
-    // Soma o poder de cada luz que existe na cena
     for(int i = 0; i < numLights; i++) {
-        // A. Luz Difusa (Onde a luz bate de frente)
         vec3 lightDir = normalize(lightPos[i] - FragPos);
         float diff = max(dot(norm, lightDir), 0.0);
         vec3 diffuse = diff * lightColor[i];
 
-        // B. Luz Especular (O brilho refletido)
         vec3 reflectDir = reflect(-lightDir, norm);
-        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // 32.0 é o Shininess padrão
-        vec3 specular = spec * lightColor[i];
+        float spec = pow(max(dot(viewDir, reflectDir), 0.0), uShininess); 
+        
+        float mapSpecular = 1.0; 
+        if (uHasSpecularMap) {
+            mapSpecular = texture(specularMap, TexCoord).r;
+        }
+        
+        vec3 specular = uSpecularStrength * mapSpecular * spec * lightColor[i];
 
-        // C. Atenuação (A luz enfraquece com a distância)
         float distance = length(lightPos[i] - FragPos);
         float attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * (distance * distance));
 
-        finalLighting += (diffuse + specular) * attenuation;
+        totalDiffuse += diffuse * attenuation;
+        totalSpecular += specular * attenuation;
     }
 
-    // 4. Aplica a iluminação final ao objeto!
-    FragColor = vec4(ambient + finalLighting, 1.0) * baseResult;
+    // --- A MÁGICA DA FÍSICA AQUI ---
+    // 1. A luz ambiente e difusa revelam a textura do objeto
+    vec3 objectIllumination = (ambient + totalDiffuse) * baseResult.rgb;
+    
+    // 2. O reflexo especular é adicionado POR CIMA (additive blending)
+    vec3 finalColor = objectIllumination + totalSpecular;
+
+    // Aplica o alpha final
+    FragColor = vec4(finalColor, baseResult.a);
 }

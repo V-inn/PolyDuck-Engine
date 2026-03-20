@@ -49,6 +49,7 @@ add_executable(Engine3D src/main.cpp
                 src/graphics/UiManager.cpp
                 src/scene/SceneNode.cpp
                 src/scene/Scene.cpp
+                src/graphics/Material.cpp
                 include/imgui/imgui.cpp 
                 include/imgui/imgui_tables.cpp 
                 include/imgui/imgui_widgets.cpp 
