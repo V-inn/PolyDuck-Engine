@@ -27,7 +27,7 @@ uniform int numLights;
 
 uniform vec3 viewPos;
 
-uniform samplerCube skybox;       // A textura do nosso céu
+uniform sampler2D skybox;       // A textura do nosso céu
 uniform float uReflectivity;
 
 void main()
@@ -85,21 +85,20 @@ void main()
     // 2. O reflexo especular é adicionado POR CIMA (additive blending)
     vec3 finalColor = objectIllumination + totalSpecular;
 
-    // --- 3. A NOVA MÁGICA DOS REFLEXOS (Environment Mapping) ---
-    // O vetor de incidência (I) deve apontar DA câmera PARA o pixel. 
-    // Como o seu viewDir aponta DO pixel PARA a câmera, nós apenas invertemos o sinal dele!
     vec3 I = -viewDir;
-    
-    // Rebatemos o raio usando a normal FINAL (norm), garantindo que 
-    // o reflexo entorte se houver um Normal Map ativado!
     vec3 R = reflect(I, norm);
     
-    // Lemos a cor do céu na direção em que o raio rebateu
-    vec3 reflectionColor = texture(skybox, R).rgb;
+    // Usamos a mesma fórmula mágica aqui! (Não esqueça de colocar invAtan lá no topo ou aqui)
+    vec2 invAtan = vec2(0.1591, 0.3183);
+    vec2 envUV = vec2(atan(R.z, R.x), asin(R.y));
+    envUV *= invAtan;
+    envUV += 0.5;
 
-    // Misturamos a cor original do objeto com a cor do céu (baseado no % de refletividade)
+    // Lê a textura 2D panorâmica
+    vec3 reflectionColor = texture(skybox, envUV).rgb;
+
+    // Mistura o reflexo
     finalColor = mix(finalColor, reflectionColor, uReflectivity);
 
-    // Aplica o alpha final
     FragColor = vec4(finalColor, baseResult.a);
 }

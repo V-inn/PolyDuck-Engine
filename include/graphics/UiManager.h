@@ -11,7 +11,7 @@ public:
     ~UIManager();                  // Limpa a memória do ImGui no final
 
     void beginFrame();             // Prepara para desenhar
-    void render(SceneState& state, Scene& scene);
+    void render(SceneState& state, Scene& scene, unsigned int sceneTexture);
     void endFrame();               // Envia para a placa de vídeo
     void DrawHierarchyNode(SceneNode* node, SceneState& state, SceneNode* parent);
 };

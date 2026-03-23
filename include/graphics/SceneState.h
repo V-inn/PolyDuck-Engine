@@ -8,7 +8,11 @@ class SceneNode;
 
 struct SceneState {
     bool wireframeMode = false;
-    SceneNode* selectedNode = nullptr; 
+    bool showSkybox = true;
+    SceneNode* selectedNode = nullptr;
+
+    float viewportWidth = 1200.0f;
+    float viewportHeight = 800.0f;
 };
 
 #endif

@@ -104,8 +104,26 @@ void UIManager::beginFrame() {
     ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 }
 
-void UIManager::render(SceneState& state, Scene& scene) {
+void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTexture) {
     static int currentTextureTarget = 0;
+
+    // ---------------------------------------------------
+    // JANELA PRINCIPAL: VIEWPORT (A CENA 3D)
+    // ---------------------------------------------------
+    // Tira as margens de dentro da janela para a imagem colar nas bordas
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("Cena 3D");
+
+    // Descobre o tamanho disponível para a imagem
+    ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
+
+    state.viewportWidth = viewportPanelSize.x > 0 ? viewportPanelSize.x : 1.0f;
+    state.viewportHeight = viewportPanelSize.y > 0 ? viewportPanelSize.y : 1.0f;
+    
+    ImGui::Image((void*)(intptr_t)sceneTexture, viewportPanelSize, ImVec2(0, 1), ImVec2(1, 0));
+
+    ImGui::End();
+    ImGui::PopStyleVar();
 
     // ---------------------------------------------------
     // 0. MAIN MENU BAR (A barra superior clássica!)
@@ -141,6 +159,7 @@ void UIManager::render(SceneState& state, Scene& scene) {
     ImGui::Begin("Cena");
     ImGui::Separator();
     ImGui::Checkbox("Modo Wireframe", &state.wireframeMode);
+    ImGui::Checkbox("Mostrar Skybox", &state.showSkybox);
     ImGui::End();
 
     // ---------------------------------------------------

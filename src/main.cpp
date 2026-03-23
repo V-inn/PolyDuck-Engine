@@ -32,10 +32,6 @@ float lastFrame = 0.0f;
 bool uiMode = false; // Começa no modo Câmera (falso)
 bool tabKeyPressed = false; // Para evitar que a tecla ative várias vezes num único clique
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-    glViewport(0, 0, width, height);
-}
-
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
     if (uiMode) return;
 
@@ -116,7 +112,6 @@ int main() {
 
     GLFWwindow* window = glfwCreateWindow(1200, 800, "RenderEngine", NULL, NULL);
     glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     glEnable(GL_DEPTH_TEST);
@@ -225,22 +220,72 @@ int main() {
     // Compila os novos shaders do céu
     Shader skyboxShader("shaders/skybox.vs", "shaders/skybox.fs");
 
-    std::vector<std::string> faces
-    {
-        "assets/skyboxes/water/right.jpg",
-        "assets/skyboxes/water/left.jpg",
-        "assets/skyboxes/water/top.jpg",
-        "assets/skyboxes/water/bottom.jpg",
-        "assets/skyboxes/water/front.jpg",
-        "assets/skyboxes/water/back.jpg"
-    };
-    unsigned int cubemapTexture = loadCubemap(faces);
+    // 1. Carrega uma textura 2D Normal (mas gigante e panorâmica!)
+    unsigned int panoramaTexture;
+    glGenTextures(1, &panoramaTexture);
+    glBindTexture(GL_TEXTURE_2D, panoramaTexture);
 
-    // Avisa o shader do skybox que a textura estará na porta 0
-    skyboxShader.use();
-    skyboxShader.setInt("skybox", 0);
-
+    int widthP, heightP, nrChannelsP;
+    // Opcional, mas panoramas costumam vir invertidos no eixo Y. Se o chão do céu 
+    // ficar no topo, mude para 'true'.
+    stbi_set_flip_vertically_on_load(true); 
     
+    // Coloque um panorama .jpg na sua pasta
+    unsigned char *dataP = stbi_load("./assets/skyboxes/sky_05_2k.png", &widthP, &heightP, &nrChannelsP, 0);
+    
+    if (dataP) {
+        GLenum format = (nrChannelsP == 4) ? GL_RGBA : GL_RGB;
+
+        glTexImage2D(GL_TEXTURE_2D, 0, format, widthP, heightP, 0, format, GL_UNSIGNED_BYTE, dataP);
+        
+        // Wrap S e T como Repetição evita aquela linha preta vertical na emenda das bordas
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    } else {
+        std::cout << "Falha ao carregar o Panorama!" << std::endl;
+    }
+    stbi_image_free(dataP);
+
+    // 2. Avisa os dois Shaders qual é a porta correta!
+    skyboxShader.use();
+    skyboxShader.setInt("skybox", 15); // Usa o novo nome da variável
+
+    nossoShader.use();
+    nossoShader.setInt("skybox", 15);  // Usa o novo nome da variável
+
+    // =======================================================
+    // --- CRIAÇÃO DO FRAMEBUFFER (O VIEWPORT DA ENGINE) ---
+    // =======================================================
+    unsigned int framebuffer;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+    // 1. Cria a Textura onde a cena colorida será "pintada"
+    unsigned int textureColorbuffer;
+    glGenTextures(1, &textureColorbuffer);
+    glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+    // Por enquanto, criamos do tamanho da janela (1200x800)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1200, 800, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorbuffer, 0);
+
+    // 2. Cria o Z-Buffer (Renderbuffer) para o cálculo de profundidade funcionar dentro da textura
+    unsigned int rbo;
+    glGenRenderbuffers(1, &rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 1200, 800);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "ERRO::FRAMEBUFFER:: Nao esta completo!" << std::endl;
+    
+    // Desliga o FBO para não bagunçar nada antes do loop
+    glBindFramebuffer(GL_FRAMEBUFFER, 0); 
+    // =======================================================
+
     SceneState sceneState;
     UIManager uiManager(window);
 
@@ -256,14 +301,40 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         uiManager.beginFrame();
-        uiManager.render(sceneState, minhaCena);
 
-        // Pega tamanho da tela e calcula Projection/View (Iguais para todos)
-        int width, height;
-        glfwGetWindowSize(window, &width, &height);
-        if (height == 0) height = 1; 
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 100.0f);
+        static float lastViewportWidth = 1200.0f;
+        static float lastViewportHeight = 800.0f;
+
+        // Se o usuário esticou ou encolheu a janela do ImGui...
+        if (sceneState.viewportWidth != lastViewportWidth || sceneState.viewportHeight != lastViewportHeight) {
+            
+            // 1. Redimensiona a Textura de Cor do FBO
+            glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, sceneState.viewportWidth, sceneState.viewportHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+            
+            // 2. Redimensiona o Z-Buffer (Profundidade)
+            glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, sceneState.viewportWidth, sceneState.viewportHeight);
+            
+            // Atualiza a memória
+            lastViewportWidth = sceneState.viewportWidth;
+            lastViewportHeight = sceneState.viewportHeight;
+        }
+
+        // Usa o tamanho EXATO da janela do ImGui para calcular a Lente da Câmera
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), sceneState.viewportWidth / sceneState.viewportHeight, 0.1f, 100.0f);
         glm::mat4 view = camera.GetViewMatrix();
+
+        // =======================================================
+        // 2. LIGA O FRAMEBUFFER: Tudo a partir daqui vai para a Textura!
+        // =======================================================
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        
+        // Limpa o fundo do Universo 3D (Onde não tem Skybox)
+        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glViewport(0, 0, sceneState.viewportWidth, sceneState.viewportHeight);
 
         // ---------------------------------------------------------------------
         // CAÇADOR DE LUZES (Guarda as luzes numa lista)
@@ -310,14 +381,10 @@ int main() {
             nossoShader.setMat4("projection", projection);
             nossoShader.setMat4("view", view);
             nossoShader.setVec3("viewPos", camera.Position);
-
-            // --- ATIVANDO OS REFLEXOS ---
-            // Diz ao shader que a textura do céu estará na unidade 1
-            nossoShader.setInt("skybox", 4); 
             
             // Ativa a porta 1 e conecta o nosso céu de água nela!
             glActiveTexture(GL_TEXTURE4);
-            glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+            glBindTexture(GL_TEXTURE_2D, panoramaTexture);
 
             glActiveTexture(GL_TEXTURE0);
             
@@ -349,7 +416,7 @@ int main() {
 
         // --- RENDERIZAÇÃO DO SKYBOX ---
         // 1. Muda a matemática de profundidade para aceitar pixels com Z = 1.0 (O fundo absoluto)
-        if (!sceneState.wireframeMode) {
+        if (!sceneState.wireframeMode && sceneState.showSkybox) {
             glDepthFunc(GL_LEQUAL);  
             skyboxShader.use();
         
@@ -362,15 +429,14 @@ int main() {
 
             // 3. Desenha o Cubo
             glBindVertexArray(skyboxVAO);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+            glActiveTexture(GL_TEXTURE15);
+            glBindTexture(GL_TEXTURE_2D, panoramaTexture);
             glDrawArrays(GL_TRIANGLES, 0, 36);
             glBindVertexArray(0);
 
+            // 4. Devolve o OpenGL para o comportamento de profundidade normal
+            glDepthFunc(GL_LESS);
         }
-
-        // 4. Devolve o OpenGL para o comportamento de profundidade normal
-        glDepthFunc(GL_LESS);
 
         // ---------------------------------------------------------------------
         // FASE 3: DESENHAR OS ÍCONES DE LÂMPADA (Billboards Transparentes)
@@ -407,9 +473,16 @@ int main() {
             }
         }
 
-        // Reseta o modo de desenho para Fill antes de desenhar a UI (O ImGui precisa disso)
+        // =======================================================
+        // 3. DESLIGA O FRAMEBUFFER: Voltamos a desenhar na tela real!
+        // =======================================================
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        
+        // Garante que o OpenGL está no modo preenchido antes de entregar pro ImGui
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); 
 
+        // 4. Desenha a Interface (Passando a nossa textura como parâmetro!)
+        uiManager.render(sceneState, minhaCena, textureColorbuffer);
         uiManager.endFrame();
 
         glfwSwapBuffers(window);
