@@ -1,10 +1,9 @@
 #include "graphics/Primitives.h"
+#include <glm/glm.hpp>
 
 const float PI = 3.14159265359f;
 
-void Primitive::setupMesh(const std::vector<float>& vertices, const std::vector<unsigned int>& indices) {
-    indexCount = indices.size();
-
+void Primitive::setupMesh(const std::vector<float>& vertices, const std::vector<unsigned int>& indices, int floatCount) {
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
@@ -12,29 +11,115 @@ void Primitive::setupMesh(const std::vector<float>& vertices, const std::vector<
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    // Dica de C++ moderno: std::vector::data() retorna o ponteiro direto do array
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+    
+    indexCount = indices.size(); 
 
-    int stride = 8 * sizeof(float); // Agora cada vértice tem 8 floats no total!
+    // O stride agora é dinâmico (8 ou 14)
+    int stride = floatCount * sizeof(float);
 
-    // Layout 0: Posição (3 floats, começa no byte 0)
+    // Sempre temos Posição(0), Normal(1) e UV(2)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
     glEnableVertexAttribArray(0);
-
-    // Layout 1: Normal (3 floats, começa após os 3 de posição)
+    
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
-
-    // Layout 2: Textura UV (2 floats, começa após os 6 anteriores)
+    
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
+
+    // Se a malha tiver Tangentes (14 floats), ativamos as portas extras!
+    if (floatCount >= 14) {
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
+        glEnableVertexAttribArray(3);
+        
+        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, stride, (void*)(11 * sizeof(float)));
+        glEnableVertexAttribArray(4);
+    } else {
+        // Desativa por segurança para modelos simples
+        glDisableVertexAttribArray(3);
+        glDisableVertexAttribArray(4);
+    }
 
     glBindVertexArray(0);
 }
 
+std::vector<float> Primitive::computeTangents(const std::vector<float>& vertices8, const std::vector<unsigned int>& indices) {
+    int vertexCount = vertices8.size() / 8;
+    std::vector<float> vertices14(vertexCount * 14, 0.0f); // Cria o novo array limpo
+
+    // 1. Copia os dados originais (Posição, Normal, UV) para o novo formato
+    for(int i = 0; i < vertexCount; i++) {
+        for(int j = 0; j < 8; j++) {
+            vertices14[i * 14 + j] = vertices8[i * 8 + j];
+        }
+    }
+
+    // 2. Calcula as Tangentes baseadas nos Triângulos
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        int i0 = indices[i]; int i1 = indices[i+1]; int i2 = indices[i+2];
+
+        // Ponteiros rápidos para a posição de início de cada vértice
+        float* v0 = &vertices14[i0 * 14];
+        float* v1 = &vertices14[i1 * 14];
+        float* v2 = &vertices14[i2 * 14];
+
+        // Extrai as posições e UVs
+        glm::vec3 pos0(v0[0], v0[1], v0[2]); glm::vec2 uv0(v0[6], v0[7]);
+        glm::vec3 pos1(v1[0], v1[1], v1[2]); glm::vec2 uv1(v1[6], v1[7]);
+        glm::vec3 pos2(v2[0], v2[1], v2[2]); glm::vec2 uv2(v2[6], v2[7]);
+
+        glm::vec3 edge1 = pos1 - pos0;
+        glm::vec3 edge2 = pos2 - pos0;
+        glm::vec2 deltaUV1 = uv1 - uv0;
+        glm::vec2 deltaUV2 = uv2 - uv0;
+
+        // Previne divisão por zero se a textura estiver mapeada errada
+        float det = (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+        float f = (det == 0.0f) ? 0.0f : 1.0f / det;
+
+        glm::vec3 tangent(
+            f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x),
+            f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y),
+            f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z)
+        );
+
+        glm::vec3 bitangent(
+            f * (-deltaUV2.x * edge1.x + deltaUV1.x * edge2.x),
+            f * (-deltaUV2.x * edge1.y + deltaUV1.x * edge2.y),
+            f * (-deltaUV2.x * edge1.z + deltaUV1.x * edge2.z)
+        );
+
+        // Soma os vetores nos 3 vértices do triângulo (índices 8, 9, 10 e 11, 12, 13)
+        for(int k=0; k<3; k++) {
+            v0[8+k] += tangent[k]; v0[11+k] += bitangent[k];
+            v1[8+k] += tangent[k]; v1[11+k] += bitangent[k];
+            v2[8+k] += tangent[k]; v2[11+k] += bitangent[k];
+        }
+    }
+
+    // 3. Normaliza os vetores no final para garantir que o tamanho seja exatamente 1.0
+    for(int i = 0; i < vertexCount; i++) {
+        float* v = &vertices14[i * 14];
+        glm::vec3 t(v[8], v[9], v[10]);
+        glm::vec3 b(v[11], v[12], v[13]);
+        
+        // Se o vetor for maior que zero, normaliza. Senão, dá um valor padrão seguro!
+        if (glm::length(t) > 0.0001f) t = glm::normalize(t);
+        else t = glm::vec3(1.0f, 0.0f, 0.0f);
+        
+        if (glm::length(b) > 0.0001f) b = glm::normalize(b);
+        else b = glm::vec3(0.0f, 1.0f, 0.0f);
+        
+        v[8] = t.x; v[9] = t.y; v[10] = t.z;
+        v[11] = b.x; v[12] = b.y; v[13] = b.z;
+    }
+
+    return vertices14;
+}
 void Primitive::draw() const {
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
@@ -112,7 +197,8 @@ Sphere::Sphere(float radius, int sectorCount, int stackCount) {
         }
     }
     
-    setupMesh(vertices, indices);
+    std::vector<float> verticesComRelevo = computeTangents(vertices, indices);
+    setupMesh(verticesComRelevo, indices, 14);
 }
 
 Cylinder::Cylinder(float baseRadius, float topRadius, float height, int sectorCount) {
@@ -167,7 +253,8 @@ Cylinder::Cylinder(float baseRadius, float topRadius, float height, int sectorCo
         indices.push_back(k2 + 2);
     }
 
-    setupMesh(vertices, indices);
+    std::vector<float> verticesComTangentes = computeTangents(vertices, indices);
+    setupMesh(verticesComTangentes, indices, 14);
 }
 
 Plane::Plane(float width, float depth, int resX, int resZ, float uvScale) {
@@ -202,7 +289,9 @@ Plane::Plane(float width, float depth, int resX, int resZ, float uvScale) {
             indices.push_back(k2 + 1);
         }
     }
-    setupMesh(vertices, indices);
+
+    std::vector<float> verticesComRelevo = computeTangents(vertices, indices);
+    setupMesh(verticesComRelevo, indices, 14);
 }
 
 Box::Box(float width, float height, float length) {
@@ -275,6 +364,6 @@ Box::Box(float width, float height, float length) {
         indices.push_back(ind[i]);
     }
 
-    // A Mágica da Herança: passa os vetores para a classe mãe configurar a GPU!
-    setupMesh(vertices, indices);
+    std::vector<float> verticesComRelevo = computeTangents(vertices, indices);
+    setupMesh(verticesComRelevo, indices, 14);
 }

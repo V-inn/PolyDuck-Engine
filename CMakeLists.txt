@@ -50,6 +50,7 @@ add_executable(Engine3D src/main.cpp
                 src/scene/SceneNode.cpp
                 src/scene/Scene.cpp
                 src/graphics/Material.cpp
+                src/graphics/TextureLoader.cpp
                 include/imgui/imgui.cpp 
                 include/imgui/imgui_tables.cpp 
                 include/imgui/imgui_widgets.cpp 
@@ -69,3 +70,4 @@ target_link_libraries(Engine3D PRIVATE glfw OpenGL::GL glm::glm)
 # Copia a pasta de shaders da raiz do projeto para a pasta de build
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/user_assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

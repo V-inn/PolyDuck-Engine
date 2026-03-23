@@ -13,6 +13,7 @@ public:
     void beginFrame();             // Prepara para desenhar
     void render(SceneState& state, Scene& scene);
     void endFrame();               // Envia para a placa de vídeo
+    void DrawHierarchyNode(SceneNode* node, SceneState& state, SceneNode* parent);
 };
 
 #endif

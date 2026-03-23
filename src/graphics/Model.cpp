@@ -79,6 +79,6 @@ Model::Model(const std::string& path) {
         }
     }
 
-    // Passa os arrays finalizados para a classe mãe configurar a Placa de Vídeo!
-    setupMesh(vertices, indices);
+    std::vector<float> verticesComTangentes = computeTangents(vertices, indices);
+    setupMesh(verticesComTangentes, indices, 14);
 }

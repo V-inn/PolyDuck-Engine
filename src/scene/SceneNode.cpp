@@ -65,6 +65,7 @@ void SceneNode::draw(Shader& shader, const glm::mat4& viewMatrix, glm::mat4 pare
         glUniform4f(glGetUniformLocation(shader.ID, "uBaseColor"), material.baseColor.r, material.baseColor.g, material.baseColor.b, material.baseColor.a);
         shader.setFloat("uSpecularStrength", material.specularStrength);
         shader.setFloat("uShininess", material.shininess);
+        shader.setFloat("uReflectivity", material.reflectivity);
         
         // --- A MAGIA DO RESET DE ESTADO ---
         
@@ -89,9 +90,17 @@ void SceneNode::draw(Shader& shader, const glm::mat4& viewMatrix, glm::mat4 pare
             shader.setBool("uHasSpecularMap", false);
         }
         shader.setInt("specularMap", 1); 
-        
-        // 3. O RESET FINAL DE SEGURANÇA!
-        // Após configurar tudo, VOLTA para o Slot 0 antes de desenhar!
+
+        glActiveTexture(GL_TEXTURE2);
+        if (material.normalMap != 0) {
+            glBindTexture(GL_TEXTURE_2D, material.normalMap);
+            shader.setBool("uHasNormalMap", true);
+        } else {
+            glBindTexture(GL_TEXTURE_2D, 0);
+            shader.setBool("uHasNormalMap", false);
+        }
+        shader.setInt("normalMap", 2); // Lê da Porta 2!
+
         glActiveTexture(GL_TEXTURE0); 
         
         mesh->draw(); 

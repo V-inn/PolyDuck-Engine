@@ -12,6 +12,10 @@
 #include "graphics/SceneState.h"
 #include "graphics/UiManager.h"
 #include "scene/Scene.h"
+#include "graphics/TextureLoader.h"
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 // Instancia a câmera globalmente
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -84,13 +88,33 @@ void processInput(GLFWwindow *window) {
     }
 }
 
+void drop_callback(GLFWwindow* window, int count, const char** paths) {
+    // Garante que a pasta existe
+    if (!fs::exists("./user_assets")) {
+        fs::create_directory("./user_assets");
+    }
+
+    for (int i = 0; i < count; i++) {
+        fs::path sourcePath(paths[i]); // O caminho original do arquivo no PC do usuário
+        fs::path destinationPath = fs::path("./user_assets") / sourcePath.filename();
+
+        try {
+            // Copia o arquivo para a nossa pasta. overwrite_existing substitui se já tiver um igual.
+            fs::copy(sourcePath, destinationPath, fs::copy_options::overwrite_existing);
+            std::cout << "[Importacao] Arquivo copiado com sucesso: " << destinationPath << std::endl;
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "[Erro] Falha ao copiar arquivo: " << e.what() << std::endl;
+        }
+    }
+}
+
 int main() {
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(1200, 800, "Minha Engine 3D", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1200, 800, "RenderEngine", NULL, NULL);
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
@@ -139,9 +163,84 @@ int main() {
     Sphere originDot(0.02f, 10, 5);
 
     glfwSetCursorPosCallback(window, mouse_callback);
-    // Esconde o cursor e o "prende" dentro da janela (estilo FPS)
+    glfwSetDropCallback(window, drop_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+    // Vértices de um cubo simples de tamanho 1x1x1 (Apenas posições X, Y, Z)
+    float skyboxVertices[] = {
+        // posições          
+        -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        -1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+
+        -1.0f, -1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+        -1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f
+    };
+
+    unsigned int skyboxVAO, skyboxVBO;
+    glGenVertexArrays(1, &skyboxVAO);
+    glGenBuffers(1, &skyboxVBO);
+    glBindVertexArray(skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glBindVertexArray(0);
+
+    // Compila os novos shaders do céu
+    Shader skyboxShader("shaders/skybox.vs", "shaders/skybox.fs");
+
+    std::vector<std::string> faces
+    {
+        "assets/skyboxes/water/right.jpg",
+        "assets/skyboxes/water/left.jpg",
+        "assets/skyboxes/water/top.jpg",
+        "assets/skyboxes/water/bottom.jpg",
+        "assets/skyboxes/water/front.jpg",
+        "assets/skyboxes/water/back.jpg"
+    };
+    unsigned int cubemapTexture = loadCubemap(faces);
+
+    // Avisa o shader do skybox que a textura estará na porta 0
+    skyboxShader.use();
+    skyboxShader.setInt("skybox", 0);
+
+    
     SceneState sceneState;
     UIManager uiManager(window);
 
@@ -201,7 +300,7 @@ int main() {
         originDot.draw();
 
         // ---------------------------------------------------------------------
-        // FASE 2: DESENHAR A CENA 3D (Onde o erro estava!)
+        // FASE 2: DESENHAR A CENA 3D
         // ---------------------------------------------------------------------
         if (!sceneState.wireframeMode) {
             // MODO NORMAL COM LUZES
@@ -211,6 +310,16 @@ int main() {
             nossoShader.setMat4("projection", projection);
             nossoShader.setMat4("view", view);
             nossoShader.setVec3("viewPos", camera.Position);
+
+            // --- ATIVANDO OS REFLEXOS ---
+            // Diz ao shader que a textura do céu estará na unidade 1
+            nossoShader.setInt("skybox", 4); 
+            
+            // Ativa a porta 1 e conecta o nosso céu de água nela!
+            glActiveTexture(GL_TEXTURE4);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+
+            glActiveTexture(GL_TEXTURE0);
             
             int countLuzes = std::min((int)listaDeLuzes.size(), 10);
             nossoShader.setInt("numLights", countLuzes);
@@ -223,6 +332,8 @@ int main() {
                 nossoShader.setVec3(colName, listaDeLuzes[i]->lightColor * listaDeLuzes[i]->lightIntensity);
             }
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+            
         } else {
             // MODO WIREFRAME (Sem luz, usa o unshadedShader)
             unshadedShader.use();
@@ -236,11 +347,37 @@ int main() {
         // Desenha todos os objetos da árvore de uma vez
         minhaCena.draw(sceneState.wireframeMode ? unshadedShader : nossoShader, view);
 
+        // --- RENDERIZAÇÃO DO SKYBOX ---
+        // 1. Muda a matemática de profundidade para aceitar pixels com Z = 1.0 (O fundo absoluto)
+        if (!sceneState.wireframeMode) {
+            glDepthFunc(GL_LEQUAL);  
+            skyboxShader.use();
+        
+            // Isso prende o cubo gigante exatamente na cabeça da câmera. Você pode girar para olhar, 
+            // mas se andar para frente, o céu "anda" junto com você, parecendo infinito.
+            glm::mat4 viewSkybox = glm::mat4(glm::mat3(view)); 
+            
+            skyboxShader.setMat4("view", viewSkybox); // Passa a matriz sem posição!
+            skyboxShader.setMat4("projection", projection);
+
+            // 3. Desenha o Cubo
+            glBindVertexArray(skyboxVAO);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+            glBindVertexArray(0);
+
+        }
+
+        // 4. Devolve o OpenGL para o comportamento de profundidade normal
+        glDepthFunc(GL_LESS);
+
         // ---------------------------------------------------------------------
         // FASE 3: DESENHAR OS ÍCONES DE LÂMPADA (Billboards Transparentes)
         // ---------------------------------------------------------------------
         // Desenhamos por último para a transparência do .png não "furar" o cenário 3D!
         if (!sceneState.wireframeMode) {
+            glActiveTexture(GL_TEXTURE0);
             nossoShader.use();
             nossoShader.setMat4("projection", projection);
             nossoShader.setMat4("view", view);
@@ -269,10 +406,6 @@ int main() {
                 groundPlane.draw(); 
             }
         }
-        // --- Fim da Fase 3 ---
-
-        // Desenha todos os objetos da árvore de uma vez
-        minhaCena.draw(sceneState.wireframeMode ? unshadedShader : nossoShader, view);
 
         // Reseta o modo de desenho para Fill antes de desenhar a UI (O ImGui precisa disso)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); 

@@ -1,6 +1,7 @@
 #include <glad/glad.h>
 #include <stb_image.h>
 #include "graphics/UIManager.h"
+#include "graphics/Primitives.h"
 #include <imgui/imgui.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 #include <imgui/backends/imgui_impl_opengl3.h>
@@ -8,8 +9,18 @@
 #include <iostream>
 #include <filesystem>
 #include "graphics/Model.h"
+#include <algorithm>
+#include "graphics/IconsFontAwesome7.h"
 
 namespace fs = std::filesystem;
+
+static SceneNode* nodeToDelete = nullptr;
+static SceneNode* parentOfNodeToDelete = nullptr;
+static SceneNode* nodeToDuplicate = nullptr;
+static SceneNode* parentOfNodeToDuplicate = nullptr;
+static SceneNode* nodeToMove = nullptr;
+static SceneNode* newParentNode = nullptr;
+static SceneNode* oldParentNode = nullptr;
 
 double modulo(double x, double y) {
     return fmod(fmod(x, y) + y, y);
@@ -55,6 +66,26 @@ UIManager::UIManager(GLFWwindow* window) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+    // --- INICIALIZAÇÃO DE FONTES E ÍCONES ---
+    io.Fonts->AddFontDefault(); // Carrega a fonte de texto padrão primeiro
+
+    ImFontConfig config;
+    config.MergeMode = true;  // Diz ao ImGui para colar a próxima fonte na anterior
+    config.PixelSnapH = true; // Mantém os ícones nítidos
+
+    // A faixa mágica da versão 7
+    static const ImWchar ranges[] = { ICON_MIN_FA, ICON_MAX_16_FA, 0 };
+
+    // Carrega o seu arquivo .otf (Lembre-se: o caminho é a partir de onde o seu .exe roda!)
+    const char* fontPath = "assets/fonts/FontAwesome7Free-Solid-900.otf"; 
+    ImFont* font = io.Fonts->AddFontFromFileTTF(fontPath, 10.0f, &config, ranges);
+    
+    if (font == nullptr) {
+        std::cout << "AVISO: Nao foi possivel carregar a fonte de icones em: " << fontPath << "\n";
+    }
+    // ----------------------------------------
+
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
@@ -116,16 +147,113 @@ void UIManager::render(SceneState& state, Scene& scene) {
     // JANELA 2: HIERARQUIA (Lista de Objetos)
     // ---------------------------------------------------
     ImGui::Begin("Hierarquia");
-    // Lemos todos os filhos diretos do nó raiz da nossa cena
-    for (auto child : scene.root->children) {
-        // Verifica se o item atual do loop é o mesmo que está selecionado na memória
-        bool isSelected = (state.selectedNode == child);
+    ImGui::Text("Criar Primitivas:");
+
+    // --- BOTÃO DO CUBO ---
+    if (ImGui::Button("[+] Cubo")) {
+        Primitive* novoCubo = new Box(1.0f, 1.0f, 1.0f);
+        SceneNode* novoNode = new SceneNode("Cubo", NodeType::MESH, novoCubo);
         
-        // ImGui::Selectable cria um botão invisível que fica azul quando clicado
-        if (ImGui::Selectable(child->name.c_str(), isSelected)) {
-            state.selectedNode = child; // Atualiza o ponteiro!
+        scene.root->addChild(novoNode);
+        state.selectedNode = novoNode; // Já deixa selecionado no Inspetor!
+    }
+
+    ImGui::SameLine(); // Coloca o próximo botão na mesma linha
+
+    // --- BOTÃO DA ESFERA ---
+    if (ImGui::Button("[+] Esfera")) {
+        Primitive* novaEsfera = new Sphere(1.0f, 36, 18);
+        SceneNode* novoNode = new SceneNode("Esfera", NodeType::MESH, novaEsfera);
+        
+        scene.root->addChild(novoNode);
+        state.selectedNode = novoNode;
+    }
+
+    ImGui::SameLine();
+
+    // --- BOTÃO DO PLANO ---
+    if (ImGui::Button("[+] Plano")) {
+        Primitive* novoPlano = new Plane(10.0f, 10.0f, 10, 10);
+        SceneNode* novoNode = new SceneNode("Plano", NodeType::MESH, novoPlano);
+        
+        scene.root->addChild(novoNode);
+        state.selectedNode = novoNode;
+    }
+
+    ImGui::Separator();
+    
+    if (scene.root != nullptr) {
+        for (SceneNode* child : scene.root->children) {
+            // Passamos scene.root como o pai inicial
+            DrawHierarchyNode(child, state, scene.root); 
         }
     }
+
+    // --- PROCESSAMENTO DA FILA DE AÇÕES ---
+
+    // 1. Ação de Deletar
+    if (nodeToDelete != nullptr && parentOfNodeToDelete != nullptr) {
+        // Se estávamos com o objeto selecionado, limpamos a seleção para o Inspetor não bugar
+        if (state.selectedNode == nodeToDelete) state.selectedNode = nullptr;
+
+        auto& lista = parentOfNodeToDelete->children;
+
+        // Procura a posição exata do nosso nó na lista do pai
+        auto it = std::find(lista.begin(), lista.end(), nodeToDelete);
+        
+        // Se encontrou (o iterador não chegou no final da lista), apaga!
+        if (it != lista.end()) {
+            lista.erase(it);
+        }
+
+        // Libera a memória RAM e deleta os filhos que estavam dentro dele
+        delete nodeToDelete; 
+        
+        // Reseta o pedido
+        nodeToDelete = nullptr;
+        parentOfNodeToDelete = nullptr;
+    }
+
+    // 2. Ação de Duplicar
+    if (nodeToDuplicate != nullptr && parentOfNodeToDuplicate != nullptr) {
+        SceneNode* copia = new SceneNode(nodeToDuplicate->name + " (Copia)", nodeToDuplicate->type, nodeToDuplicate->mesh);
+        
+        // Copia as propriedades visuais
+        copia->material = nodeToDuplicate->material;
+        copia->affectedByLight = nodeToDuplicate->affectedByLight;
+        
+        // --- COPIA AS TRANSFORMAÇÕES (O que faltava!) ---
+        copia->position = nodeToDuplicate->position;
+        copia->rotation = nodeToDuplicate->rotation;
+        copia->scale = nodeToDuplicate->scale;
+
+        // Adiciona à lista do mesmo pai e já deixa selecionado
+        parentOfNodeToDuplicate->addChild(copia);
+        state.selectedNode = copia;
+
+        // Reseta o pedido
+        nodeToDuplicate = nullptr;
+        parentOfNodeToDuplicate = nullptr;
+    }
+
+    if (nodeToMove != nullptr && newParentNode != nullptr && oldParentNode != nullptr) {
+        
+        // Passo A: Remove o nó da lista de filhos do pai antigo
+        auto& lista = oldParentNode->children;
+        auto it = std::find(lista.begin(), lista.end(), nodeToMove);
+        if (it != lista.end()) {
+            lista.erase(it);
+        }
+
+        // Passo B: Adiciona o nó na lista de filhos do novo pai
+        newParentNode->addChild(nodeToMove);
+
+        // Reseta os pedidos
+        nodeToMove = nullptr;
+        newParentNode = nullptr;
+        oldParentNode = nullptr;
+    }
+
     ImGui::End();
 
     // ---------------------------------------------------
@@ -167,6 +295,7 @@ void UIManager::render(SceneState& state, Scene& scene) {
             if (state.selectedNode->affectedByLight) {
                 ImGui::SliderFloat("Forca do Reflexo", &state.selectedNode->material.specularStrength, 0.0f, 1.0f);
                 ImGui::SliderFloat("Polimento (Shininess)", &state.selectedNode->material.shininess, 2.0f, 256.0f);
+                ImGui::SliderFloat("Refletividade", &state.selectedNode->material.reflectivity, 0.0f, 1.0f);
             }
             
             // --- NOVO: SELETOR DE ALVO DE TEXTURA ---
@@ -174,6 +303,7 @@ void UIManager::render(SceneState& state, Scene& scene) {
             ImGui::Text("Aplicar textura clicada como:");
             ImGui::RadioButton("Diffuse Map (Cor)", &currentTextureTarget, 0); ImGui::SameLine();
             ImGui::RadioButton("Specular Map (Brilho)", &currentTextureTarget, 1);
+            ImGui::RadioButton("Normal Map (Relevo)", &currentTextureTarget, 2);
 
             ImGui::Checkbox("Afetado pela Iluminacao", &state.selectedNode->affectedByLight);
         }
@@ -201,46 +331,136 @@ void UIManager::render(SceneState& state, Scene& scene) {
     // JANELA 4: NAVEGADOR DE ARQUIVOS (Asset Browser)
     // ---------------------------------------------------
     ImGui::Begin("Navegador de Arquivos");
-    ImGui::Text("Diretorio: ./assets/");
+    ImGui::Text("Diretorio: ./user_assets/");
     ImGui::Separator();
 
     // Varre a pasta assets do seu HD em tempo real
-    for (const auto& entry : fs::directory_iterator("./assets")) {
+    for (const auto& entry : fs::directory_iterator("./user_assets")) {
         std::string path = entry.path().string();
         std::string extension = entry.path().extension().string();
         std::string filename = entry.path().filename().string();
 
+        std::string nodeName = entry.path().stem().string(); 
+
         if (extension == ".obj") {
-            std::string buttonLabel = "[3D] " + filename;
+            std::string buttonLabel = std::string(ICON_FA_CUBE) + " " + filename;
             if (ImGui::Button(buttonLabel.c_str())) {
-                // Aloca o modelo na memória da GPU lendo o arquivo clicado
                 Model* novoModelo = new Model(path.c_str());
-                // Cria um nó na nossa árvore de cena com o nome do arquivo
-                SceneNode* novoNode = new SceneNode(filename, NodeType::MESH, novoModelo);
-                // Adiciona o nó à cena
+                
+                // Usamos o nodeName limpo aqui!
+                SceneNode* novoNode = new SceneNode(nodeName, NodeType::MESH, novoModelo); 
                 scene.root->addChild(novoNode);
-                // Já deixa o objeto recém-criado selecionado no Inspetor!
                 state.selectedNode = novoNode; 
             }
         }
         else if (extension == ".jpg" || extension == ".png") {
-            std::string buttonLabel = "[IMG] " + filename;
+            std::string buttonLabel = std::string(ICON_FA_IMAGE) + " " + filename;
             if (ImGui::Button(buttonLabel.c_str())) {
                 if (state.selectedNode != nullptr) {
                     unsigned int novaTextura = CarregarTexturaDoArquivo(path.c_str());
                     
                     if (currentTextureTarget == 0) {
                         state.selectedNode->material.diffuseMap = novaTextura;
-                        std::cout << "Diffuse Map aplicado!" << std::endl;
                     } else if (currentTextureTarget == 1) {
                         state.selectedNode->material.specularMap = novaTextura;
-                        std::cout << "Specular Map aplicado!" << std::endl;
+                    } else if (currentTextureTarget == 2) {
+                        state.selectedNode->material.normalMap = novaTextura;
+                        std::cout << "Normal Map aplicado!" << std::endl;
                     }
                 }
             }
         }
     }
     ImGui::End();
+}
+
+static const char* GetIconForNode(SceneNode* node) {
+    switch (node->type) {
+        case NodeType::MESH: 
+            return ICON_FA_CUBE;
+            
+        case NodeType::LIGHT: 
+            return ICON_FA_LIGHTBULB;
+            
+        case NodeType::FOLDER: 
+            return ICON_FA_FOLDER;
+            
+        default: 
+            return ICON_FA_CIRCLE_QUESTION;
+    }
+}
+
+void UIManager::DrawHierarchyNode(SceneNode* node, SceneState& state, SceneNode* parent) {
+    if (node == nullptr) return;
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (state.selectedNode == node) flags |= ImGuiTreeNodeFlags_Selected;
+    if (node->children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+
+    const char* icon = GetIconForNode(node);
+
+    // 2. Formata a string para ter "%s %s" (Ícone e depois o Nome)
+    bool nodeOpen = ImGui::TreeNodeEx((void*)node, flags, "%s %s", icon, node->name.c_str());
+
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        state.selectedNode = node;
+    }
+
+    // --- DRAG (O objeto sendo agarrado e arrastado) ---
+    if (ImGui::BeginDragDropSource()) {
+        // Empacotamos o nó atual e o pai dele num array de 2 posições
+        SceneNode* payloadData[2] = { node, parent };
+        
+        // Enviamos 16 bytes (o tamanho de dois ponteiros de 64-bits)
+        ImGui::SetDragDropPayload("SCENE_NODE", payloadData, sizeof(SceneNode*) * 2);
+        
+        // O textinho que aparece flutuando ao lado do mouse
+        ImGui::Text("Movendo %s", node->name.c_str()); 
+        ImGui::EndDragDropSource();
+    }
+
+    // --- DROP (O objeto que está recebendo o outro) ---
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SCENE_NODE")) {
+            // Desempacotamos os dados recebidos
+            SceneNode** data = (SceneNode**)payload->Data;
+            SceneNode* draggedNode = data[0];
+            SceneNode* oldParent = data[1];
+            
+            // Regra de Ouro: Não pode soltar dentro de si mesmo, 
+            // e nem soltar num lugar onde ele já está (o mesmo pai)
+            if (draggedNode != node && oldParent != node) {
+                nodeToMove = draggedNode;
+                newParentNode = node; // O nó onde soltamos o mouse vira o novo pai
+                oldParentNode = oldParent;
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    if (ImGui::BeginPopupContextItem()) {
+        state.selectedNode = node; // Seleciona o item para facilitar a visualização
+        
+        if (ImGui::MenuItem("Duplicar")) {
+            nodeToDuplicate = node;
+            parentOfNodeToDuplicate = parent;
+        }
+        ImGui::Separator(); // Uma linha bonitinha para separar
+        if (ImGui::MenuItem("Deletar", "Del")) {
+            nodeToDelete = node;
+            parentOfNodeToDelete = parent;
+        }
+        
+        ImGui::EndPopup();
+    }
+
+    // A Recursão
+    if (nodeOpen) {
+        for (SceneNode* child : node->children) {
+            DrawHierarchyNode(child, state, node); // Passa 'node' como o novo pai!
+        }
+        ImGui::TreePop(); 
+    }
 }
 
 void UIManager::endFrame() {

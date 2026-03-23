@@ -18,9 +18,9 @@ public:
 
 protected:
     // Uma função protegida que apenas as "filhas" podem chamar para configurar a GPU
-    void setupMesh(const std::vector<float>& vertices, const std::vector<unsigned int>& indices);
-
+    void setupMesh(const std::vector<float>& vertices, const std::vector<unsigned int>& indices, int floatCount = 8);
     void addVertex(std::vector<float>& vertices, float x, float y, float z, float nx, float ny, float nz, float u, float v);
+    std::vector<float> computeTangents(const std::vector<float>& vertices8, const std::vector<unsigned int>& indices);
 };
 
 class Sphere : public Primitive {
