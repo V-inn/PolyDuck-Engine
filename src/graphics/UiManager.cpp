@@ -26,12 +26,11 @@ double modulo(double x, double y) {
     return fmod(fmod(x, y) + y, y);
 }
 
-static unsigned int CarregarTexturaDoArquivo(const char* path) {
+static unsigned int CarregarTexturaDoArquivo(const char* path, bool isSkybox = false) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
     
     int width, height, nrChannels;
-    // Força inverter o Y na leitura para alinhar com o OpenGL
     stbi_set_flip_vertically_on_load(true); 
     unsigned char *data = stbi_load(path, &width, &height, &nrChannels, 0);
     
@@ -39,16 +38,24 @@ static unsigned int CarregarTexturaDoArquivo(const char* path) {
         GLenum format;
         if (nrChannels == 1) format = GL_RED;
         else if (nrChannels == 3) format = GL_RGB;
-        else if (nrChannels == 4) format = GL_RGBA; // Suporte a Transparência!
+        else if (nrChannels == 4) format = GL_RGBA;
 
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
 
-        // Configurações padrão de repetição e filtro
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        if (!isSkybox) {
+            // Textura Normal de Objetos (Com Mipmaps)
+            glGenerateMipmap(GL_TEXTURE_2D);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        } else {
+            // Textura de Skybox (Sem Mipmaps e com Clamp_To_Edge no eixo vertical)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+        
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         stbi_image_free(data);
@@ -190,6 +197,16 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
 
     ImGui::SameLine();
 
+    if (ImGui::Button("[+] Cilindro")) {
+        Primitive* novoCilindro = new Cylinder(1.0f, 1.0f, 2.0f, 36);
+        SceneNode* novoNode = new SceneNode("Cilindro", NodeType::MESH, novoCilindro);
+        
+        scene.root->addChild(novoNode);
+        state.selectedNode = novoNode;
+    }
+
+    ImGui::SameLine();
+
     // --- BOTÃO DO PLANO ---
     if (ImGui::Button("[+] Plano")) {
         Primitive* novoPlano = new Plane(10.0f, 10.0f, 10, 10);
@@ -285,25 +302,35 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
         if (ImGui::InputText("Nome", nameBuf, sizeof(nameBuf))) {
             state.selectedNode->name = std::string(nameBuf); // Atualiza em tempo real!
         }
-        ImGui::Separator();
+        
         
         // 2. SLIDER DE SENSIBILIDADE (STEP)
-        static float step = 0.05f; // 'static' mantém o valor guardado entre os frames
-        ImGui::DragFloat("Sensibilidade dos Sliders", &step, 0.01f, 0.01f, 2.0f);
-        ImGui::Separator();
-
-        // 3. TRANSFORMAÇÕES COM MÓDULO
-        ImGui::Text("Transformacoes");
-        ImGui::DragFloat3("Posicao", glm::value_ptr(state.selectedNode->position), step);
+        static float moveStep = 0.05f;
+        static float rotateStep = 0.05f;
         
-        // Usamos DragFloat3 normal, mas aplicamos a sua função 'modulo' logo em seguida!
-        if (ImGui::DragFloat3("Rotacao", glm::value_ptr(state.selectedNode->rotation), step)) {
-            state.selectedNode->rotation.x = (float)modulo(state.selectedNode->rotation.x, 360.0);
-            state.selectedNode->rotation.y = (float)modulo(state.selectedNode->rotation.y, 360.0);
-            state.selectedNode->rotation.z = (float)modulo(state.selectedNode->rotation.z, 360.0);
+        
+        if (state.selectedNode->type == NodeType::MESH 
+        || state.selectedNode->type == NodeType::BILLBOARD
+        || state.selectedNode->type == NodeType::LIGHT) {
+            
+            ImGui::Separator();
+
+            ImGui::DragFloat("Move step", &moveStep, 0.01f, 0.01f, 2.0f);
+            ImGui::DragFloat("Rotation step", &rotateStep, 1.0f, 0.5f, 2.0f);
+
+            ImGui::Separator();
+            // 3. TRANSFORMAÇÕES COM MÓDULO
+            ImGui::Text("Transformacoes");
+            ImGui::DragFloat3("Posicao", glm::value_ptr(state.selectedNode->position), moveStep);
+            // Usamos DragFloat3 normal, mas aplicamos a sua função 'modulo' logo em seguida!
+            if (ImGui::DragFloat3("Rotacao", glm::value_ptr(state.selectedNode->rotation), rotateStep)) {
+                state.selectedNode->rotation.x = (float)modulo(state.selectedNode->rotation.x, 360.0);
+                state.selectedNode->rotation.y = (float)modulo(state.selectedNode->rotation.y, 360.0);
+                state.selectedNode->rotation.z = (float)modulo(state.selectedNode->rotation.z, 360.0);
+            }
+            ImGui::DragFloat3("Escala", glm::value_ptr(state.selectedNode->scale), moveStep);
         }
         
-        ImGui::DragFloat3("Escala", glm::value_ptr(state.selectedNode->scale), step);
         ImGui::Separator();
         
         // 4. PAINEL DINÂMICO
@@ -341,6 +368,28 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
             ImGui::ColorEdit4("Cor/Filtro", glm::value_ptr(state.selectedNode->material.baseColor));
             ImGui::Checkbox("Afetado pela Iluminacao", &state.selectedNode->affectedByLight);
         }
+        else if (state.selectedNode->type == NodeType::ENVIRONMENT) {
+            ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "[Configuracoes Globais]");
+            ImGui::Separator();
+            
+            ImGui::ColorEdit3("Cor Ambiente", glm::value_ptr(state.selectedNode->ambientColor));
+
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.2f, 1.0f), "[Luz Direcional (Sol)]");
+            ImGui::DragFloat3("Direcao", glm::value_ptr(state.selectedNode->sunDirection), 0.01f);
+            ImGui::ColorEdit3("Cor do Sol", glm::value_ptr(state.selectedNode->sunColor));
+            ImGui::DragFloat("Intensidade do Sol", &state.selectedNode->sunIntensity, 0.05f, 0.0f, 10.0f);
+            
+            ImGui::Separator();
+            ImGui::Text("Skybox Panoramico:");
+            ImGui::RadioButton("Aplicar Imagem ao Skybox", &currentTextureTarget, 3); // O novo alvo 3!
+            
+            if (state.selectedNode->skyboxTexture != 0) {
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Skybox Carregado!");
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Nenhum Skybox!");
+            }
+        }
     } else {
         ImGui::TextDisabled("Selecione um objeto na Hierarquia.");
     }
@@ -376,15 +425,24 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
             std::string buttonLabel = std::string(ICON_FA_IMAGE) + " " + filename;
             if (ImGui::Button(buttonLabel.c_str())) {
                 if (state.selectedNode != nullptr) {
-                    unsigned int novaTextura = CarregarTexturaDoArquivo(path.c_str());
+                    bool isSkyboxTarget = (currentTextureTarget == 3);
+                    unsigned int novaTextura = CarregarTexturaDoArquivo(path.c_str(), isSkyboxTarget);
                     
-                    if (currentTextureTarget == 0) {
-                        state.selectedNode->material.diffuseMap = novaTextura;
-                    } else if (currentTextureTarget == 1) {
-                        state.selectedNode->material.specularMap = novaTextura;
-                    } else if (currentTextureTarget == 2) {
-                        state.selectedNode->material.normalMap = novaTextura;
-                        std::cout << "Normal Map aplicado!" << std::endl;
+                    if (state.selectedNode->type == NodeType::MESH || state.selectedNode->type == NodeType::BILLBOARD) {
+                        if (currentTextureTarget == 0) {
+                            state.selectedNode->material.diffuseMap = novaTextura;
+                        } else if (currentTextureTarget == 1) {
+                            state.selectedNode->material.specularMap = novaTextura;
+                        } else if (currentTextureTarget == 2) {
+                            state.selectedNode->material.normalMap = novaTextura;
+                            std::cout << "Normal Map aplicado!" << std::endl;
+                        }
+                    }
+                    else if (state.selectedNode->type == NodeType::ENVIRONMENT) {
+                        if (currentTextureTarget == 3){
+                            // NOVO: Aplica a imagem no Environment!
+                            state.selectedNode->skyboxTexture = novaTextura;
+                        }
                     }
                 }
             }
@@ -403,6 +461,9 @@ static const char* GetIconForNode(SceneNode* node) {
             
         case NodeType::FOLDER: 
             return ICON_FA_FOLDER;
+        
+        case NodeType::ENVIRONMENT: 
+            return ICON_FA_CLOUD;
             
         default: 
             return ICON_FA_CIRCLE_QUESTION;
@@ -426,29 +487,30 @@ void UIManager::DrawHierarchyNode(SceneNode* node, SceneState& state, SceneNode*
     }
 
     // --- DRAG (O objeto sendo agarrado e arrastado) ---
-    if (ImGui::BeginDragDropSource()) {
-        // Empacotamos o nó atual e o pai dele num array de 2 posições
-        SceneNode* payloadData[2] = { node, parent };
-        
-        // Enviamos 16 bytes (o tamanho de dois ponteiros de 64-bits)
-        ImGui::SetDragDropPayload("SCENE_NODE", payloadData, sizeof(SceneNode*) * 2);
-        
-        // O textinho que aparece flutuando ao lado do mouse
-        ImGui::Text("Movendo %s", node->name.c_str()); 
-        ImGui::EndDragDropSource();
+    if (node->isDraggable == true) { 
+        if (ImGui::BeginDragDropSource()) {
+            // Empacotamos o nó atual e o pai dele num array de 2 posições
+            SceneNode* payloadData[2] = { node, parent };
+            
+            // Enviamos 16 bytes (o tamanho de dois ponteiros de 64-bits)
+            ImGui::SetDragDropPayload("SCENE_NODE", payloadData, sizeof(SceneNode*) * 2);
+            
+            // O textinho que aparece flutuando ao lado do mouse
+            ImGui::Text("Movendo %s", node->name.c_str()); 
+            ImGui::EndDragDropSource();
+        }
     }
 
     // --- DROP (O objeto que está recebendo o outro) ---
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SCENE_NODE")) {
-            // Desempacotamos os dados recebidos
             SceneNode** data = (SceneNode**)payload->Data;
             SceneNode* draggedNode = data[0];
             SceneNode* oldParent = data[1];
             
-            // Regra de Ouro: Não pode soltar dentro de si mesmo, 
-            // e nem soltar num lugar onde ele já está (o mesmo pai)
-            if (draggedNode != node && oldParent != node) {
+            // Regra de Ouro: Não pode soltar dentro de si mesmo, nem onde já está
+            // E garante que o objeto que está CHEGANDO era arrastável (redundância de segurança)
+            if (draggedNode != node && oldParent != node && draggedNode->isDraggable == true) {
                 nodeToMove = draggedNode;
                 newParentNode = node; // O nó onde soltamos o mouse vira o novo pai
                 oldParentNode = oldParent;
@@ -459,15 +521,18 @@ void UIManager::DrawHierarchyNode(SceneNode* node, SceneState& state, SceneNode*
 
     if (ImGui::BeginPopupContextItem()) {
         state.selectedNode = node; // Seleciona o item para facilitar a visualização
+
+        if (node->hasRightclick == true) {
         
-        if (ImGui::MenuItem("Duplicar")) {
-            nodeToDuplicate = node;
-            parentOfNodeToDuplicate = parent;
-        }
-        ImGui::Separator(); // Uma linha bonitinha para separar
-        if (ImGui::MenuItem("Deletar", "Del")) {
-            nodeToDelete = node;
-            parentOfNodeToDelete = parent;
+            if (ImGui::MenuItem("Duplicar")) {
+                nodeToDuplicate = node;
+                parentOfNodeToDuplicate = parent;
+            }
+            ImGui::Separator(); // Uma linha bonitinha para separar
+            if (ImGui::MenuItem("Deletar", "Del")) {
+                nodeToDelete = node;
+                parentOfNodeToDelete = parent;
+            }
         }
         
         ImGui::EndPopup();

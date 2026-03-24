@@ -286,6 +286,8 @@ int main() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0); 
     // =======================================================
 
+    minhaCena.environment->skyboxTexture = panoramaTexture;
+
     SceneState sceneState;
     UIManager uiManager(window);
 
@@ -336,9 +338,6 @@ int main() {
 
         glViewport(0, 0, sceneState.viewportWidth, sceneState.viewportHeight);
 
-        // ---------------------------------------------------------------------
-        // CAÇADOR DE LUZES (Guarda as luzes numa lista)
-        // ---------------------------------------------------------------------
         std::vector<SceneNode*> listaDeLuzes;
         for (auto node : minhaCena.root->children) {
             if (node->type == NodeType::LIGHT) {
@@ -377,17 +376,21 @@ int main() {
             // MODO NORMAL COM LUZES
             nossoShader.use();
             
-            // AGORA SIM! Enviando a Câmera para o Shader com luzes
             nossoShader.setMat4("projection", projection);
             nossoShader.setMat4("view", view);
             nossoShader.setVec3("viewPos", camera.Position);
             
-            // Ativa a porta 1 e conecta o nosso céu de água nela!
-            glActiveTexture(GL_TEXTURE4);
-            glBindTexture(GL_TEXTURE_2D, panoramaTexture);
+            // --- AMBIENT COLOR E REFLEXOS DO ENVIRONMENT ---
+            nossoShader.setVec3("uAmbientColor", minhaCena.environment->ambientColor);
+            nossoShader.setVec3("uSunDirection", minhaCena.environment->sunDirection);
+            nossoShader.setVec3("uSunColor", minhaCena.environment->sunColor);
+            nossoShader.setFloat("uSunIntensity", minhaCena.environment->sunIntensity);
 
-            glActiveTexture(GL_TEXTURE0);
-            
+            glActiveTexture(GL_TEXTURE15);
+            glBindTexture(GL_TEXTURE_2D, minhaCena.environment->skyboxTexture);
+            glActiveTexture(GL_TEXTURE0); // Reseta para a porta 0
+            // -----------------------------------------------
+
             int countLuzes = std::min((int)listaDeLuzes.size(), 10);
             nossoShader.setInt("numLights", countLuzes);
 
@@ -400,7 +403,6 @@ int main() {
             }
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-            
         } else {
             // MODO WIREFRAME (Sem luz, usa o unshadedShader)
             unshadedShader.use();
@@ -427,10 +429,13 @@ int main() {
             skyboxShader.setMat4("view", viewSkybox); // Passa a matriz sem posição!
             skyboxShader.setMat4("projection", projection);
 
+            skyboxShader.setVec3("uSunDirection", minhaCena.environment->sunDirection);
+            skyboxShader.setVec3("uSunColor", minhaCena.environment->sunColor);
+
             // 3. Desenha o Cubo
             glBindVertexArray(skyboxVAO);
             glActiveTexture(GL_TEXTURE15);
-            glBindTexture(GL_TEXTURE_2D, panoramaTexture);
+            glBindTexture(GL_TEXTURE_2D, minhaCena.environment->skyboxTexture);
             glDrawArrays(GL_TRIANGLES, 0, 36);
             glBindVertexArray(0);
 

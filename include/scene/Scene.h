@@ -6,6 +6,7 @@
 class Scene {
 public:
     SceneNode* root;
+    SceneNode* environment;
 
     Scene();
     ~Scene();

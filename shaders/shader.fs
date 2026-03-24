@@ -30,6 +30,11 @@ uniform vec3 viewPos;
 uniform sampler2D skybox;       // A textura do nosso céu
 uniform float uReflectivity;
 
+uniform vec3 uAmbientColor;
+uniform vec3 uSunDirection;
+uniform vec3 uSunColor;
+uniform float uSunIntensity;
+
 void main()
 {
     vec4 texColor = texture(diffuseMap, TexCoord);
@@ -51,12 +56,24 @@ void main()
     }
 
     vec3 viewDir = normalize(viewPos - FragPos);
+    vec3 ambient = uAmbientColor;
     
-    vec3 ambient = 0.1 * vec3(1.0);
+    vec3 sunDir = normalize(-uSunDirection); 
+    float sunDiff = max(dot(norm, sunDir), 0.0);
+    vec3 sunDiffuse = sunDiff * uSunColor * uSunIntensity;
+
+    vec3 sunReflectDir = reflect(-sunDir, norm);
+    float sunSpec = pow(max(dot(viewDir, sunReflectDir), 0.0), uShininess); 
     
-    // Separamos as luzes!
-    vec3 totalDiffuse = vec3(0.0);
-    vec3 totalSpecular = vec3(0.0);
+    float mapSpecular = 1.0;
+    if (uHasSpecularMap) {
+        mapSpecular = texture(specularMap, TexCoord).r;
+    }
+    vec3 sunSpecular = uSpecularStrength * mapSpecular * sunSpec * uSunColor * uSunIntensity;
+
+    // Inicializamos as "caixas de soma" já com o valor do sol!
+    vec3 totalDiffuse = sunDiffuse;
+    vec3 totalSpecular = sunSpecular;
 
     for(int i = 0; i < numLights; i++) {
         vec3 lightDir = normalize(lightPos[i] - FragPos);

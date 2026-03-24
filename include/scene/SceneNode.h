@@ -10,10 +10,13 @@
 #include "graphics/Material.h"
 
 // 1. As nossas categorias oficiais!
-enum class NodeType { MESH, LIGHT, CAMERA, FOLDER, BILLBOARD };
+enum class NodeType { MESH, LIGHT, CAMERA, FOLDER, BILLBOARD, ENVIRONMENT };
 
 class SceneNode {
 public:
+    bool isDraggable = true;
+    bool hasRightclick = true;
+
     std::string name;
     NodeType type; // 2. Guarda o tipo deste nó
     Primitive* mesh; 
@@ -36,6 +39,13 @@ public:
 
     SceneNode* parent;
     std::vector<SceneNode*> children;
+
+    //Environment variables
+    glm::vec3 ambientColor;
+    unsigned int skyboxTexture;
+    glm::vec3 sunDirection;
+    glm::vec3 sunColor;
+    float sunIntensity;
 
     // 3. Atualizamos o construtor para pedir o Tipo
     SceneNode(std::string name, NodeType type = NodeType::FOLDER, Primitive* mesh = nullptr);

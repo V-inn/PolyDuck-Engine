@@ -4,6 +4,7 @@
 #include <string>
 #include <iostream>
 
+// Currently unused
 unsigned int loadCubemap(std::vector<std::string> faces) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
