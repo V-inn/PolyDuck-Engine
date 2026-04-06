@@ -11,8 +11,19 @@
 #include "graphics/Model.h"
 #include <algorithm>
 #include "graphics/IconsFontAwesome7.h"
+#include <fstream>
+#include <iomanip>
+#include <windows.h>
+#include <commdlg.h>
+#include <string>
 
 namespace fs = std::filesystem;
+
+std::string currentProjectPath = ""; 
+bool showSaveDialog = false;
+char projectNameBuf[128] = "MeuNovoJogo";
+char projectPathBuf[256] = "./Projetos";
+std::string saveErrorMsg = "";
 
 static SceneNode* nodeToDelete = nullptr;
 static SceneNode* parentOfNodeToDelete = nullptr;
@@ -24,6 +35,33 @@ static SceneNode* oldParentNode = nullptr;
 
 double modulo(double x, double y) {
     return fmod(fmod(x, y) + y, y);
+}
+
+std::string OpenFileDialog(const char* filter = "Arquivos de Cena (*.json)\0*.json\0Todos os Arquivos (*.*)\0*.*\0") {
+    OPENFILENAMEA ofn;
+    CHAR szFile[260] = {0};
+
+    ZeroMemory(&ofn, sizeof(OPENFILENAME));
+    ofn.lStructSize = sizeof(OPENFILENAME);
+    ofn.hwndOwner = NULL; // Se você tiver o HWND da janela GLFW, pode colocar aqui, mas NULL funciona!
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = sizeof(szFile);
+    // Filtro para mostrar apenas arquivos .json e pastas
+    ofn.lpstrFilter = filter;
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    
+    // OFN_NOCHANGEDIR é VITAL para Motores Gráficos! 
+    // Impede que o Windows mude o diretório de trabalho da sua engine (o que faria as texturas pararem de carregar).
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (GetOpenFileNameA(&ofn) == TRUE) {
+        return std::string(ofn.lpstrFile);
+    }
+    
+    return ""; // Retorna vazio se o usuário clicar em "Cancelar"
 }
 
 static unsigned int CarregarTexturaDoArquivo(const char* path, bool isSkybox = false) {
@@ -137,13 +175,78 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
     // ---------------------------------------------------
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Arquivo")) {
-            ImGui::MenuItem("Nova Cena", "Ctrl+N");
-            ImGui::MenuItem("Salvar", "Ctrl+S");
+            
+            // --- NOVA CENA ---
+            if (ImGui::MenuItem("Nova Cena", "Ctrl+N")) {
+                scene.root->clearNonSystemChildren();
+                
+                // 1. Esquece o projeto atual
+                currentProjectPath = ""; 
+                
+                // 2. TODO: haverá um loop para dar glDeleteTextures 
+                // e limpar os buffers de VBO/VAO da memória da placa de vídeo!
+                
+                std::cout << "Nova cena criada! A memoria foi limpa." << std::endl;
+            }
+
+            if (ImGui::MenuItem("Carregar Cena", "Ctrl+O")) {
+                std::string filePath = OpenFileDialog();
+                
+                if (!filePath.empty()) {
+                    std::ifstream file(filePath);
+                    if (file.is_open()) {
+                        json j;
+                        file >> j;
+                        file.close();
+
+                        // 1. Limpa a cena velha
+                        scene.root->clearNonSystemChildren();
+                        fs::path p(filePath);
+                        
+                        // +++ CORREÇÃO 1: Caminho do projeto carregado padronizado +++
+                        currentProjectPath = p.parent_path().generic_string();
+                        
+                        // 3. Reconstrói a árvore
+                        scene.root->fromJson(j, currentProjectPath);
+                        
+                        std::cout << "Projeto carregado! Diretorio ativo: " << currentProjectPath << std::endl;
+                    } else {
+                        std::cout << "Erro ao tentar ler o arquivo JSON selecionado!" << std::endl;
+                    }
+                }
+            }
+
+            // --- SALVAR ---
+            if (ImGui::MenuItem("Salvar", "Ctrl+S")) {
+                if (currentProjectPath.empty()) {
+                    // É a primeira vez salvando! Abre a nossa nova interface.
+                    showSaveDialog = true;
+                } else {
+                    // Já temos um projeto, salva silenciosamente (Quick Save)
+                    json j = scene.root->toJson();
+                    fs::path savePath = fs::path(currentProjectPath) / "cena.json";
+                    
+                    std::ofstream file(savePath);
+                    if (file.is_open()) {
+                        file << std::setw(4) << j << std::endl;
+                        file.close();
+                        // +++ Melhoria visual: Imprime o caminho com barras certas no console +++
+                        std::cout << "Quick Save executado em: " << savePath.generic_string() << std::endl;
+                    }
+                }
+            }
+            
+            ImGui::Separator();
+            
+            // --- SAIR ---
             if (ImGui::MenuItem("Sair", "Alt+F4")) {
-                // No futuro, conectaremos isso ao glfwSetWindowShouldClose
+                // Se a variável 'window' estiver acessível aqui:
+                // glfwSetWindowShouldClose(window, true);
             }
             ImGui::EndMenu();
         }
+        
+        // --- O SEU MENU DE ADICIONAR CONTINUA INTACTO AQUI ---
         if (ImGui::BeginMenu("Adicionar")) {
             if (ImGui::MenuItem("Pasta (Folder)")) { 
                 scene.root->addChild(new SceneNode("Nova Pasta", NodeType::FOLDER)); 
@@ -152,12 +255,118 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
                 scene.root->addChild(new SceneNode("Nova Luz", NodeType::LIGHT)); 
             }
             if (ImGui::MenuItem("Billboard (Sprite 2D)")) { 
-                // Precisa instanciar um Plane para servir de tela para a imagem
                 scene.root->addChild(new SceneNode("Novo Billboard", NodeType::BILLBOARD, new Plane(1.0f, 1.0f, 1, 1))); 
+            }
+            if (ImGui::MenuItem("Importar Modelo 3D (.obj)")) {
+                std::string filePath = OpenFileDialog("Modelos 3D (*.obj)\0*.obj\0Todos os Arquivos (*.*)\0*.*\0");
+                
+                if (!filePath.empty()) {
+                    fs::path sourcePath(filePath);
+                    std::string fileName = sourcePath.filename().string();
+                    
+                    std::string pathToLoad = filePath; 
+                    std::string pathToSave = filePath; 
+                    
+                    // Se tivermos um projeto aberto, copiamos o arquivo para a pasta dele!
+                    if (!currentProjectPath.empty()) {
+                        fs::path destPath = fs::path(currentProjectPath) / "user_assets" / fileName;
+                        
+                        try {
+                            // Copia o arquivo para o nosso projeto (substitui se já existir)
+                            fs::copy_file(sourcePath, destPath, fs::copy_options::overwrite_existing);
+                            
+                            // +++ CORREÇÃO 2: Caminho do modelo padronizado +++
+                            pathToLoad = destPath.generic_string();       
+                            
+                            // O caminho RELATIVO para salvar no JSON!
+                            pathToSave = "user_assets/" + fileName; 
+                            
+                            std::cout << "[Importacao] Arquivo copiado com sucesso: " << pathToLoad << std::endl;
+                        } catch (std::filesystem::filesystem_error& e) {
+                            std::cout << "Erro ao copiar asset: " << e.what() << std::endl;
+                        }
+                    }
+                    
+                    // 1. Instancia o modelo lendo o arquivo físico
+                    Model* novoModelo = new Model(pathToLoad);
+                    
+                    // 2. O SEGREDO: Sobrescrevemos o caminho que ele vai salvar no JSON
+                    novoModelo->filePath = pathToSave; 
+                    
+                    scene.root->addChild(new SceneNode(fileName, NodeType::MESH, novoModelo));
+                }
             }
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
+    }
+
+    // ---------------------------------------------------
+    // INTERFACE DE CRIAÇÃO DE PROJETO (SALVAR COMO)
+    // ---------------------------------------------------
+    if (showSaveDialog) {
+        // Uma janela que fica no meio da tela
+        ImGui::SetNextWindowSize(ImVec2(400, 200), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Salvar Novo Projeto", &showSaveDialog);
+        
+        ImGui::TextWrapped("Escolha o local e o nome do seu novo projeto. Uma pasta sera criada automaticamente com a estrutura da engine.");
+        ImGui::Spacing();
+
+        ImGui::InputText("Caminho Destino", projectPathBuf, 256);
+        ImGui::InputText("Nome do Projeto", projectNameBuf, 128);
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (ImGui::Button("Criar e Salvar Projeto", ImVec2(150, 30))) {
+            
+            fs::path targetDir = fs::path(projectPathBuf) / projectNameBuf;
+            
+            // +++ A NOSSA PROTEÇÃO +++
+            if (fs::exists(targetDir)) {
+                // Bloqueia e avisa o usuário!
+                saveErrorMsg = "Erro: Ja existe um projeto com esse nome neste local!";
+            } else {
+                // O caminho está livre! Pode criar.
+                saveErrorMsg = ""; // Limpa qualquer erro antigo
+                fs::path assetsDir = targetDir / "user_assets";
+                
+                try {
+                    fs::create_directories(assetsDir);
+                    
+                    json j = scene.root->toJson();
+                    fs::path jsonPath = targetDir / "cena.json";
+                    std::ofstream file(jsonPath);
+                    
+                    if (file.is_open()) {
+                        file << std::setw(4) << j << std::endl;
+                        file.close();
+                        
+                        // +++ CORREÇÃO 3: Caminho do projeto recém-criado padronizado +++
+                        currentProjectPath = targetDir.generic_string();
+                        showSaveDialog = false; // Fecha a janelinha
+                        
+                        std::cout << "Projeto estruturado com sucesso em: " << currentProjectPath << std::endl;
+                    }
+                } catch (const fs::filesystem_error& e) {
+                    saveErrorMsg = std::string("Erro do Sistema: ") + e.what();
+                }
+            }
+        }
+        
+        ImGui::SameLine();
+        if (ImGui::Button("Cancelar", ImVec2(100, 30))) {
+            showSaveDialog = false;
+            saveErrorMsg = ""; // Limpa o erro se o usuário desistir
+        }
+
+        if (!saveErrorMsg.empty()) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%s", saveErrorMsg.c_str());
+        }
+
+        ImGui::End();
     }
 
     // ---------------------------------------------------
@@ -399,54 +608,63 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
     // JANELA 4: NAVEGADOR DE ARQUIVOS (Asset Browser)
     // ---------------------------------------------------
     ImGui::Begin("Navegador de Arquivos");
-    ImGui::Text("Diretorio: ./user_assets/");
+    
+    // 1. Descobre qual pasta ler (A do projeto atual, ou uma global se for cena nova)
+    std::string assetsDir = currentProjectPath.empty() ? "./user_assets" : (std::filesystem::path(currentProjectPath) / "user_assets").string();
+
+    ImGui::Text("Diretorio: %s", assetsDir.c_str());
     ImGui::Separator();
 
-    // Varre a pasta assets do seu HD em tempo real
-    for (const auto& entry : fs::directory_iterator("./user_assets")) {
-        std::string path = entry.path().string();
-        std::string extension = entry.path().extension().string();
-        std::string filename = entry.path().filename().string();
+    // 2. Proteção: Só tenta varrer se a pasta realmente existir no Windows
+    if (std::filesystem::exists(assetsDir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(assetsDir)) {
+            std::string path = entry.path().string();
+            std::string extension = entry.path().extension().string();
+            std::string filename = entry.path().filename().string();
+            std::string nodeName = entry.path().stem().string(); 
 
-        std::string nodeName = entry.path().stem().string(); 
-
-        if (extension == ".obj") {
-            std::string buttonLabel = std::string(ICON_FA_CUBE) + " " + filename;
-            if (ImGui::Button(buttonLabel.c_str())) {
-                Model* novoModelo = new Model(path.c_str());
-                
-                // Usamos o nodeName limpo aqui!
-                SceneNode* novoNode = new SceneNode(nodeName, NodeType::MESH, novoModelo); 
-                scene.root->addChild(novoNode);
-                state.selectedNode = novoNode; 
-            }
-        }
-        else if (extension == ".jpg" || extension == ".png") {
-            std::string buttonLabel = std::string(ICON_FA_IMAGE) + " " + filename;
-            if (ImGui::Button(buttonLabel.c_str())) {
-                if (state.selectedNode != nullptr) {
-                    bool isSkyboxTarget = (currentTextureTarget == 3);
-                    unsigned int novaTextura = CarregarTexturaDoArquivo(path.c_str(), isSkyboxTarget);
+            if (extension == ".obj") {
+                std::string buttonLabel = std::string(ICON_FA_CUBE) + " " + filename;
+                if (ImGui::Button(buttonLabel.c_str())) {
                     
-                    if (state.selectedNode->type == NodeType::MESH || state.selectedNode->type == NodeType::BILLBOARD) {
-                        if (currentTextureTarget == 0) {
-                            state.selectedNode->material.diffuseMap = novaTextura;
-                        } else if (currentTextureTarget == 1) {
-                            state.selectedNode->material.specularMap = novaTextura;
-                        } else if (currentTextureTarget == 2) {
-                            state.selectedNode->material.normalMap = novaTextura;
-                            std::cout << "Normal Map aplicado!" << std::endl;
+                    Model* novoModelo = new Model(path);
+                    novoModelo->filePath = "user_assets/" + filename; 
+                    
+                    SceneNode* novoNode = new SceneNode(nodeName, NodeType::MESH, novoModelo); 
+                    scene.root->addChild(novoNode);
+                    state.selectedNode = novoNode; 
+                }
+            }
+            else if (extension == ".jpg" || extension == ".png") {
+                std::string buttonLabel = std::string(ICON_FA_IMAGE) + " " + filename;
+                if (ImGui::Button(buttonLabel.c_str())) {
+                    if (state.selectedNode != nullptr) {
+                        bool isSkyboxTarget = (currentTextureTarget == 3);
+                        // Como a textura está no mesmo projeto, podemos carregar direto
+                        unsigned int novaTextura = CarregarTexturaDoArquivo(path.c_str(), isSkyboxTarget);
+                        
+                        if (state.selectedNode->type == NodeType::MESH || state.selectedNode->type == NodeType::BILLBOARD) {
+                            if (currentTextureTarget == 0) {
+                                state.selectedNode->material.diffuseMap = novaTextura;
+                            } else if (currentTextureTarget == 1) {
+                                state.selectedNode->material.specularMap = novaTextura;
+                            } else if (currentTextureTarget == 2) {
+                                state.selectedNode->material.normalMap = novaTextura;
+                                std::cout << "Normal Map aplicado!" << std::endl;
+                            }
                         }
-                    }
-                    else if (state.selectedNode->type == NodeType::ENVIRONMENT) {
-                        if (currentTextureTarget == 3){
-                            // NOVO: Aplica a imagem no Environment!
-                            state.selectedNode->skyboxTexture = novaTextura;
+                        else if (state.selectedNode->type == NodeType::ENVIRONMENT) {
+                            if (currentTextureTarget == 3){
+                                state.selectedNode->skyboxTexture = novaTextura;
+                            }
                         }
                     }
                 }
             }
         }
+    } else {
+        // Se a pasta não existir (ex: o usuário acabou de abrir a engine e não salvou o projeto ainda)
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "A pasta de assets do projeto nao foi encontrada.");
     }
     ImGui::End();
 }

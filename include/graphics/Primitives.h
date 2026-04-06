@@ -11,7 +11,7 @@ public:
     unsigned int VAO, VBO, EBO;
     int indexCount;
 
-    ~Primitive();
+    virtual ~Primitive();
 
     // Todas as formas herdam a capacidade de se desenhar
     void draw() const; 

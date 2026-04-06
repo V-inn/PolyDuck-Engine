@@ -6,6 +6,8 @@
 
 class Model : public Primitive {
 public:
+    std::string filePath;
+
     // O construtor recebe o caminho do arquivo .obj no seu disco
     Model(const std::string& path);
 };

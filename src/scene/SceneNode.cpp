@@ -1,5 +1,7 @@
 #include "scene/SceneNode.h"
 #include "graphics/Material.h"
+#include "graphics/Primitives.h"
+#include "graphics/Model.h"
 
 SceneNode::SceneNode(std::string name, NodeType type, Primitive* mesh) 
     : name(name), type(type), mesh(mesh), parent(nullptr), 
@@ -111,3 +113,142 @@ void SceneNode::draw(Shader& shader, const glm::mat4& viewMatrix, glm::mat4 pare
         child->draw(shader, viewMatrix, globalTransform);
     }
 }
+
+json SceneNode::toJson() {
+    json j;
+    
+    // 1. Salva os dados básicos
+    j["name"] = name;
+    j["type"] = static_cast<int>(type); // Salva o Enum como um número
+    
+    // 2. Salva Vetores (O nlohmann converte arrays do C++ para arrays do JSON lindamente)
+    // Assumindo que você tem transformações no seu SceneNode:
+    j["position"] = { position.x, position.y, position.z };
+    j["rotation"] = { rotation.x, rotation.y, rotation.z };
+    j["scale"]    = { scale.x, scale.y, scale.z };
+
+    if (this->mesh != nullptr) {
+        // Se for um modelo importado, salvamos o tipo e o caminho do arquivo
+        if (Model* m = dynamic_cast<Model*>(this->mesh)) {
+            j["meshType"] = "model";
+            j["meshPath"] = m->filePath;
+        } 
+        // Se forem primitivas, salvamos apenas o nome da forma
+        else if (dynamic_cast<Box*>(this->mesh)) {
+            j["meshType"] = "box";
+        } 
+        else if (dynamic_cast<Sphere*>(this->mesh)) {
+            j["meshType"] = "sphere";
+        } 
+        else if (dynamic_cast<Plane*>(this->mesh)) {
+            j["meshType"] = "plane";
+        }
+    } else {
+        j["meshType"] = "none"; // Nós como Pastas ou Luzes não têm malha
+    }
+
+    // 3. Propriedades Específicas de Sistemas (O seu Environment!)
+    if (type == NodeType::ENVIRONMENT) {
+        j["ambientColor"] = { ambientColor.x, ambientColor.y, ambientColor.z };
+        j["sunDirection"] = { sunDirection.x, sunDirection.y, sunDirection.z };
+        j["sunColor"]     = { sunColor.x, sunColor.y, sunColor.z };
+        j["sunIntensity"] = sunIntensity;
+        // Nota: Não salvamos o ID da textura (skyboxTexture), porque esse ID (ex: 15) 
+        // muda toda vez que abrimos a engine. Para texturas, salvaríamos o caminho (path) do arquivo!
+    }
+
+    // 4. A RECURSÃO: Salva todos os filhos dentro de uma lista JSON!
+    j["children"] = json::array();
+    for (SceneNode* child : children) {
+        // Ignora o Environment na lista de filhos, pois a Scene já o cria por padrão
+        if (child->type != NodeType::ENVIRONMENT) { 
+            j["children"].push_back(child->toJson());
+        }
+    }
+
+    return j;
+}
+
+void SceneNode::fromJson(const json& j, const std::string& currentProjectPath) {
+    // 1. Carrega dados básicos usando o .value() para EXTENSIBILIDADE!
+    // Se "name" não existir no arquivo, ele usa "Node Desconhecido"
+    name = j.value("name", name);
+    type = static_cast<NodeType>(j.value("type", 0));
+
+    // 2. Carrega Vetores (Com checagem de segurança)
+    if (j.contains("position")) {
+         position.x = j["position"][0];
+         position.y = j["position"][1];
+         position.z = j["position"][2];
+    }
+    if (j.contains("rotation")) {
+         rotation.x = j["rotation"][0];
+         rotation.y = j["rotation"][1];
+         rotation.z = j["rotation"][2];
+    }
+    if (j.contains("scale")) {
+         scale.x = j["scale"][0];
+         scale.y = j["scale"][1];
+         scale.z = j["scale"][2];
+    }
+
+    // 3. Propriedades do Environment
+    if (type == NodeType::ENVIRONMENT) {
+        if (j.contains("ambientColor")) {
+            ambientColor = glm::vec3(j["ambientColor"][0], j["ambientColor"][1], j["ambientColor"][2]);
+        }
+        if (j.contains("sunDirection")) {
+            sunDirection = glm::vec3(j["sunDirection"][0], j["sunDirection"][1], j["sunDirection"][2]);
+        }
+        if (j.contains("sunColor")) {
+            sunColor = glm::vec3(j["sunColor"][0], j["sunColor"][1], j["sunColor"][2]);
+        }
+        sunIntensity = j.value("sunIntensity", 1.0f); // Valor padrão de 1.0
+    }
+
+    // 4. A RECURSÃO: Recria os filhos!
+    if (j.contains("children")) {
+        for (const json& childJson : j["children"]) {
+            
+            std::string childName = childJson.value("name", "Node Desconhecido");
+            NodeType childType = static_cast<NodeType>(childJson.value("type", 0));
+            std::string meshType = childJson.value("meshType", "none");
+            Primitive* childMesh = nullptr;
+
+            if (meshType == "box") {
+                childMesh = new Box(1.0f, 1.0f, 1.0f); 
+            } 
+            else if (meshType == "sphere") {
+                childMesh = new Sphere(1.0f, 36, 18);
+            } 
+            else if (meshType == "plane") {
+                childMesh = new Plane(10.0f, 10.0f, 10, 10, 1.0f);
+            } 
+            else if (meshType == "model") {
+                std::string savedPath = childJson.value("meshPath", "");
+                std::filesystem::path fullPath = savedPath;
+                
+                if (!currentProjectPath.empty() && savedPath.find(":") == std::string::npos) {
+                    fullPath = std::filesystem::path(currentProjectPath) / savedPath;
+                }
+                
+                if (!savedPath.empty() && std::filesystem::exists(fullPath)) {
+                    Model* loadedModel = new Model(fullPath.string());
+                    loadedModel->filePath = savedPath; 
+                    childMesh = loadedModel;
+                } else {
+                    // +++ DEBUG IMPORTANTE +++
+                    std::cout << "ALERTA: O arquivo do modelo sumiu ou o caminho esta errado: " << fullPath << std::endl;
+                }
+            }
+
+            SceneNode* newChild = new SceneNode(childName, childType, childMesh);
+
+            // +++ CORREÇÃO DA RECURSÃO: Passa o caminho do projeto adiante! +++
+            newChild->fromJson(childJson, currentProjectPath);
+
+            this->addChild(newChild);
+        }
+    }
+}
+

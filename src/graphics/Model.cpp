@@ -17,6 +17,8 @@ struct VertexKey {
 };
 
 Model::Model(const std::string& path) {
+    Model::filePath = path;
+
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
 

@@ -10,9 +10,13 @@ out vec3 Normal;
 out vec2 TexCoord;
 out mat3 TBN; // Matriz mágica que alinha a textura com o mundo 3D
 
+out vec4 FragPosLightSpace;
+
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+
+uniform mat4 lightSpaceMatrix;
 
 void main()
 {
@@ -31,6 +35,8 @@ void main()
     vec3 B = cross(N, T); 
     
     TBN = mat3(T, B, N);
+
+    FragPosLightSpace = lightSpaceMatrix * vec4(FragPos, 1.0);
 
     gl_Position = projection * view * vec4(FragPos, 1.0);
 }

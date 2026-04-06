@@ -120,8 +120,9 @@ int main() {
 
     // 1. Constrói o nosso Shader Program lendo os arquivos
     Shader nossoShader("shaders/shader.vs", "shaders/shader.fs");
-
     Shader unshadedShader("shaders/unshaded.vs", "shaders/unshaded.fs");
+    Shader shadowShader("shaders/shadow.vs", "shaders/shadow.fs");
+    Shader skyboxShader("shaders/skybox.vs", "shaders/skybox.fs");
 
     // --- CARREGAR O ÍCONE DA LUZ ---
     unsigned int lightIconTexture;
@@ -217,9 +218,6 @@ int main() {
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glBindVertexArray(0);
 
-    // Compila os novos shaders do céu
-    Shader skyboxShader("shaders/skybox.vs", "shaders/skybox.fs");
-
     // 1. Carrega uma textura 2D Normal (mas gigante e panorâmica!)
     unsigned int panoramaTexture;
     glGenTextures(1, &panoramaTexture);
@@ -286,6 +284,47 @@ int main() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0); 
     // =======================================================
 
+    // =======================================================
+    // --- SHADOW MAPPING: O FRAMEBUFFER DO SOL ---
+    // =======================================================
+    // 1. Resolução do Mapa de Sombras (2048x2048 é um ótimo padrão de qualidade)
+    const unsigned int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048; 
+    
+    // 2. Cria o Framebuffer da Sombra
+    unsigned int depthMapFBO;
+    glGenFramebuffers(1, &depthMapFBO);
+    
+    // 3. Cria a Textura que vai guardar as distâncias (Profundidade/Depth)
+    unsigned int depthMap;
+    glGenTextures(1, &depthMap);
+    glBindTexture(GL_TEXTURE_2D, depthMap);
+    
+    // Perceba que usamos GL_DEPTH_COMPONENT em vez de GL_RGB, pois não queremos cores!
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    
+    // 4. Configuração dos filtros de textura
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    
+    // 5. CLAMP_TO_BORDER: Isso é crucial! Garante que as coisas que estão fora da 
+    // "visão do Sol" não projetem uma sombra infinita esticada pelo cenário.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    float borderColor[] = { 1.0, 1.0, 1.0, 1.0 };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    
+    // 6. Conecta a textura ao Framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+    
+    // 7. Avisa explicitamente o OpenGL: "Não tente desenhar cores aqui!"
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    
+    // 8. Desliga o Framebuffer para não bagunçar o resto da inicialização
+    glBindFramebuffer(GL_FRAMEBUFFER, 0); 
+    // =======================================================
+
     minhaCena.environment->skyboxTexture = panoramaTexture;
 
     SceneState sceneState;
@@ -327,15 +366,39 @@ int main() {
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), sceneState.viewportWidth / sceneState.viewportHeight, 0.1f, 100.0f);
         glm::mat4 view = camera.GetViewMatrix();
 
+        // =====================================================================
+        // +++ NOVA FASE 1: O PONTO DE VISTA DO SOL (SHADOW MAP) +++
+        // =====================================================================
+        
+        // 1. Matrizes da "Câmera do Sol"
+        glm::vec3 sunDir = glm::normalize(minhaCena.environment->sunDirection);
+        glm::vec3 lightPos = -sunDir * 20.0f; // Afasta a câmera do sol para ela "ver" o chão
+        glm::mat4 lightProjection = glm::ortho(-15.0f, 15.0f, -15.0f, 15.0f, 1.0f, 50.0f);
+        glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
+        glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+
+        // 2. Prepara o OpenGL para desenhar a Sombra
+        glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+        glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO); // Liga a "Câmera do Sol"
+        glClear(GL_DEPTH_BUFFER_BIT); // Limpa só o Z-Buffer
+
+        // 3. Desenha os modelos (sem cor, só profundidade)
+        shadowShader.use();
+        shadowShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+        minhaCena.draw(shadowShader, lightView); 
+
+        // ---------------------------------------------------------------------
+
         // =======================================================
-        // 2. LIGA O FRAMEBUFFER: Tudo a partir daqui vai para a Textura!
+        // 2. LIGA O FRAMEBUFFER DO JOGADOR: Tudo a partir daqui vai para a Textura do ImGui!
         // =======================================================
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         
-        // Limpa o fundo do Universo 3D (Onde não tem Skybox)
+        // Limpa o fundo do Universo 3D
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        // Volta a resolução para o tamanho exato da aba do ImGui!
         glViewport(0, 0, sceneState.viewportWidth, sceneState.viewportHeight);
 
         std::vector<SceneNode*> listaDeLuzes;
@@ -346,7 +409,7 @@ int main() {
         }
 
         // ---------------------------------------------------------------------
-        // FASE 1: DESENHAR O EDITOR (Ground Grid e Ponto Central)
+        // DESENHAR O EDITOR (Ground Grid e Ponto Central)
         // ---------------------------------------------------------------------
         unshadedShader.use();
         unshadedShader.setMat4("projection", projection);
@@ -370,10 +433,9 @@ int main() {
         originDot.draw();
 
         // ---------------------------------------------------------------------
-        // FASE 2: DESENHAR A CENA 3D
+        // FASE 2 (ATUALIZADA): DESENHAR A CENA 3D COLORIDA COM A SOMBRA
         // ---------------------------------------------------------------------
         if (!sceneState.wireframeMode) {
-            // MODO NORMAL COM LUZES
             nossoShader.use();
             
             nossoShader.setMat4("projection", projection);
@@ -386,8 +448,19 @@ int main() {
             nossoShader.setVec3("uSunColor", minhaCena.environment->sunColor);
             nossoShader.setFloat("uSunIntensity", minhaCena.environment->sunIntensity);
 
+            // +++ A MÁGICA ACONTECE AQUI +++
+            // Passamos a matriz da foto do sol para o shader poder comparar as distâncias
+            nossoShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+            // Conecta a Textura do Skybox (Porta 15)
             glActiveTexture(GL_TEXTURE15);
             glBindTexture(GL_TEXTURE_2D, minhaCena.environment->skyboxTexture);
+            
+            // Conecta a Textura do Shadow Map (Porta 16)
+            glActiveTexture(GL_TEXTURE16);
+            glBindTexture(GL_TEXTURE_2D, depthMap);
+            nossoShader.setInt("shadowMap", 16);
+            
             glActiveTexture(GL_TEXTURE0); // Reseta para a porta 0
             // -----------------------------------------------
 
@@ -404,16 +477,16 @@ int main() {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         } else {
-            // MODO WIREFRAME (Sem luz, usa o unshadedShader)
+            // MODO WIREFRAME
             unshadedShader.use();
             unshadedShader.setMat4("projection", projection);
             unshadedShader.setMat4("view", view);
-            unshadedShader.setVec3("uColor", glm::vec3(1.0f, 0.5f, 0.0f)); // Cor das linhas do Wireframe
+            unshadedShader.setVec3("uColor", glm::vec3(1.0f, 0.5f, 0.0f)); 
             
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         }
 
-        // Desenha todos os objetos da árvore de uma vez
+        // Desenha todos os objetos da árvore de uma vez (Agora aplicando o shader com sombra)
         minhaCena.draw(sceneState.wireframeMode ? unshadedShader : nossoShader, view);
 
         // --- RENDERIZAÇÃO DO SKYBOX ---

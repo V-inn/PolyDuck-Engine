@@ -5,6 +5,11 @@ in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoord;
 
+in vec4 FragPosLightSpace;
+
+// A Textura que guardou as profundidades do Sol (O Shadow Map)
+uniform sampler2D shadowMap;
+
 uniform sampler2D diffuseMap;
 uniform sampler2D specularMap;
 uniform bool uHasSpecularMap;
@@ -35,6 +40,35 @@ uniform vec3 uSunDirection;
 uniform vec3 uSunColor;
 uniform float uSunIntensity;
 
+float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
+    // Executa a divisão de perspectiva
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    
+    // Transforma as coordenadas de [-1, 1] para [0, 1] (padrão de texturas)
+    projCoords = projCoords * 0.5 + 0.5;
+    
+    // Se o pixel estiver muito longe (fora do alcance do sol), força 0.0 (sem sombra)
+    if(projCoords.z > 1.0) return 0.0;
+    
+    float currentDepth = projCoords.z;
+    
+    // Calcula o "Bias" baseado no ângulo do Sol para evitar listras pretas
+    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+    
+    // Fazemos uma média de 9 pixels vizinhos (PCF) para a sombra não ficar serrilhada
+    float shadow = 0.0;
+    vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
+    for(int x = -1; x <= 1; ++x) {
+        for(int y = -1; y <= 1; ++y) {
+            float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r; 
+            shadow += currentDepth - bias > pcfDepth  ? 1.0 : 0.0;        
+        }    
+    }
+    shadow /= 9.0;
+    
+    return shadow;
+}
+
 void main()
 {
     vec4 texColor = texture(diffuseMap, TexCoord);
@@ -59,8 +93,11 @@ void main()
     vec3 ambient = uAmbientColor;
     
     vec3 sunDir = normalize(-uSunDirection); 
+
+    float shadow = ShadowCalculation(FragPosLightSpace, norm, sunDir);
+
     float sunDiff = max(dot(norm, sunDir), 0.0);
-    vec3 sunDiffuse = sunDiff * uSunColor * uSunIntensity;
+    vec3 sunDiffuse = sunDiff * uSunColor * uSunIntensity * (1.0f - shadow);
 
     vec3 sunReflectDir = reflect(-sunDir, norm);
     float sunSpec = pow(max(dot(viewDir, sunReflectDir), 0.0), uShininess); 
@@ -69,7 +106,7 @@ void main()
     if (uHasSpecularMap) {
         mapSpecular = texture(specularMap, TexCoord).r;
     }
-    vec3 sunSpecular = uSpecularStrength * mapSpecular * sunSpec * uSunColor * uSunIntensity;
+    vec3 sunSpecular = uSpecularStrength * mapSpecular * sunSpec * uSunColor * uSunIntensity * (1.0 - shadow);
 
     // Inicializamos as "caixas de soma" já com o valor do sol!
     vec3 totalDiffuse = sunDiffuse;

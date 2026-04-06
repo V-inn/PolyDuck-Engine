@@ -1,6 +1,8 @@
 #ifndef SCENENODE_H
 #define SCENENODE_H
 
+#pragma once
+
 #include <string>
 #include <vector>
 #include <glm/glm.hpp>
@@ -8,6 +10,9 @@
 #include "graphics/Primitives.h"
 #include "graphics/Shader.h"
 #include "graphics/Material.h"
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 // 1. As nossas categorias oficiais!
 enum class NodeType { MESH, LIGHT, CAMERA, FOLDER, BILLBOARD, ENVIRONMENT };
@@ -55,6 +60,20 @@ public:
 
     glm::mat4 getLocalTransform(const glm::mat4& viewMatrix);
     void draw(Shader& shader, const glm::mat4& viewMatrix, glm::mat4 parentTransform = glm::mat4(1.0f));
+
+    json toJson();
+    void fromJson(const json& j, const std::string& currentProjectPath = "");
+
+    void clearNonSystemChildren() {
+        for (int i = children.size() - 1; i >= 0; i--) {
+            if (children[i]->type != NodeType::ENVIRONMENT) {
+                delete children[i]; // Libera a RAM
+                children.erase(children.begin() + i); // Tira da lista
+            }
+        }
+    }
 };
+
+
 
 #endif
