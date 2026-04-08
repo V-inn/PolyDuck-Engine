@@ -70,4 +70,11 @@ target_link_libraries(Engine3D PRIVATE glfw OpenGL::GL glm::glm)
 # Copia a pasta de shaders da raiz do projeto para a pasta de build
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/user_assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/user_assets")
+    # Se ela existir no código fonte, copia o conteúdo dela
+    file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/user_assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+else()
+    # Se não existir (ex: servidor do GitHub), apenas cria a pasta em branco no executável
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/user_assets)
+endif()
