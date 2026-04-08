@@ -110,10 +110,22 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(1200, 800, "RenderEngine", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1200, 800, "PolyDuck Engine", NULL, NULL);
     glfwMakeContextCurrent(window);
 
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+
+    GLFWimage images[1];
+    // Coloque o caminho correto para a sua arte em pixel do Pateco!
+    images[0].pixels = stbi_load("assets/PolyDuck.png", &images[0].width, &images[0].height, 0, 4); 
+    
+    if (images[0].pixels) {
+        glfwSetWindowIcon(window, 1, images);
+        stbi_image_free(images[0].pixels); // Libera a memória RAM logo em seguida
+    } else {
+        std::cout << "Aviso: Nao foi possivel carregar o icone da janela!" << std::endl;
+    }
+
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

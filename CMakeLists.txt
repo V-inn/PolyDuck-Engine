@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 # Nome do seu projeto e a linguagem
-project(Engine3D LANGUAGES CXX C)
+project(PolyDuck LANGUAGES CXX C RC)
 
 # Define o padrão do C++ para C++17
 set(CMAKE_CXX_STANDARD 17)
@@ -37,9 +37,11 @@ FetchContent_MakeAvailable(glm)
 # Diz ao compilador onde encontrar os arquivos .h (o glad e o KHR)
 include_directories(include)
 
+set(APP_ICON ${CMAKE_CURRENT_SOURCE_DIR}/app_icon.rc)
+
 
 # Cria o executável juntando o seu main e o arquivo C do glad
-add_executable(Engine3D src/main.cpp
+add_executable(PolyDuck src/main.cpp
                 src/glad.c 
                 src/graphics/Shader.cpp 
                 src/stb_image.cpp 
@@ -56,16 +58,17 @@ add_executable(Engine3D src/main.cpp
                 include/imgui/imgui_widgets.cpp 
                 include/imgui/imgui_draw.cpp 
                 include/imgui/backends/imgui_impl_glfw.cpp 
-                include/imgui/backends/imgui_impl_opengl3.cpp 
+                include/imgui/backends/imgui_impl_opengl3.cpp
+                ${APP_ICON}
                 )
 
-target_include_directories(Engine3D PRIVATE include include/imgui)
+target_include_directories(PolyDuck PRIVATE include include/imgui)
 
 # Encontra a biblioteca base do OpenGL no seu sistema operacional
 find_package(OpenGL REQUIRED)
 
 # Linka o GLFW e o OpenGL ao nosso executável
-target_link_libraries(Engine3D PRIVATE glfw OpenGL::GL glm::glm)
+target_link_libraries(PolyDuck PRIVATE glfw OpenGL::GL glm::glm)
 
 # Copia a pasta de shaders da raiz do projeto para a pasta de build
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
