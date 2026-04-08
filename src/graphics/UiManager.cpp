@@ -1,6 +1,6 @@
 #include <glad/glad.h>
 #include <stb_image.h>
-#include "graphics/UIManager.h"
+#include "graphics/UiManager.h"
 #include "graphics/Primitives.h"
 #include <imgui/imgui.h>
 #include <imgui/backends/imgui_impl_glfw.h>
