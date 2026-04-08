@@ -21,25 +21,3 @@ jobs:
 
       - name: Compilar a Engine (Windows Release)
         run: cmake --build build --config Release
-
-  # ==========================================
-  # BUILD ON LINUX (UBUNTU)
-  # ==========================================
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Baixar o código do repositório
-        uses: actions/checkout@v4
-
-      - name: Instalar Dependências do OpenGL e Janelas (X11/Wayland)
-        # O Ubuntu da nuvem não tem interface gráfica, então precisamos baixar 
-        # as bibliotecas "mock" para o GLFW e o OpenGL conseguirem compilar
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libx11-dev libxrandr-dev libxi-dev libxext-dev libwayland-dev libxkbcommon-dev
-
-      - name: Configurar o CMake (Linux)
-        run: cmake -B build
-
-      - name: Compilar a Engine (Linux Release)
-        run: cmake --build build --config Release
