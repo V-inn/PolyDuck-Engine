@@ -106,6 +106,36 @@ static unsigned int CarregarTexturaDoArquivo(const char* path, bool isSkybox = f
     return textureID;
 }
 
+// Função auxiliar para carregar o projeto e evitar repetição de código
+static bool LoadProject(Scene& scene) {
+    std::string filePath = OpenFileDialog("Arquivos de Cena (*.json)\0*.json\0Todos os Arquivos (*.*)\0*.*\0");
+    
+    if (!filePath.empty()) {
+        std::ifstream file(filePath);
+        if (file.is_open()) {
+            json j;
+            file >> j;
+            file.close();
+
+            // 1. Limpa a cena velha
+            scene.root->clearNonSystemChildren();
+            fs::path p(filePath);
+            
+            // 2. Define o caminho do projeto globalmente
+            currentProjectPath = p.parent_path().generic_string();
+            
+            // 3. Reconstrói a árvore
+            scene.root->fromJson(j, currentProjectPath);
+            
+            std::cout << "Projeto carregado! Diretorio ativo: " << currentProjectPath << std::endl;
+            return true; // Sucesso!
+        } else {
+            std::cout << "Erro ao tentar ler o arquivo JSON selecionado!" << std::endl;
+        }
+    }
+    return false; // Usuário cancelou ou deu erro
+}
+
 UIManager::UIManager(GLFWwindow* window) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -151,6 +181,45 @@ void UIManager::beginFrame() {
 
 void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTexture) {
     static int currentTextureTarget = 0;
+    static bool showStartupModal = true; // Controla o modal inicial!
+
+    // ===================================================
+    // MODAL DE INICIALIZAÇÃO OBRIGATÓRIO
+    // ===================================================
+    if (showStartupModal) {
+        ImGui::OpenPopup("Bem-vindo a PolyDuck Engine");
+    }
+
+    // Centraliza a janela na tela
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    // Flags: Sem barra de título, não pode mover, não pode fechar pelo 'X'
+    ImGuiWindowFlags modalFlags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse;
+    
+    if (ImGui::BeginPopupModal("Bem-vindo a PolyDuck Engine", NULL, modalFlags)) {
+        ImGui::Text("Nenhum projeto carregado.");
+        ImGui::Separator();
+        ImGui::Text("Para comecar, crie um novo projeto ou carregue um existente.");
+        ImGui::Spacing(); ImGui::Spacing();
+
+        if (ImGui::Button("Criar Novo Projeto", ImVec2(200, 50))) {
+            showSaveDialog = true;    // Abre a janela de Salvar Como
+            showStartupModal = false; // Esconde este modal temporariamente
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Carregar Projeto", ImVec2(200, 50))) {
+            if (LoadProject(scene)) {
+                // Se carregou com sucesso, destrava a UI e fecha o modal
+                showStartupModal = false;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
 
     // ---------------------------------------------------
     // JANELA PRINCIPAL: VIEWPORT (A CENA 3D)
@@ -175,45 +244,18 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
     // ---------------------------------------------------
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Arquivo")) {
-            
             // --- NOVA CENA ---
             if (ImGui::MenuItem("Nova Cena", "Ctrl+N")) {
                 scene.root->clearNonSystemChildren();
-                
-                // 1. Esquece o projeto atual
                 currentProjectPath = ""; 
-                
-                // 2. TODO: haverá um loop para dar glDeleteTextures 
-                // e limpar os buffers de VBO/VAO da memória da placa de vídeo!
-                
                 std::cout << "Nova cena criada! A memoria foi limpa." << std::endl;
+                
+                showSaveDialog = true; 
             }
 
+            // --- CARREGAR CENA ---
             if (ImGui::MenuItem("Carregar Cena", "Ctrl+O")) {
-                std::string filePath = OpenFileDialog();
-                
-                if (!filePath.empty()) {
-                    std::ifstream file(filePath);
-                    if (file.is_open()) {
-                        json j;
-                        file >> j;
-                        file.close();
-
-                        // 1. Limpa a cena velha
-                        scene.root->clearNonSystemChildren();
-                        fs::path p(filePath);
-                        
-                        // +++ CORREÇÃO 1: Caminho do projeto carregado padronizado +++
-                        currentProjectPath = p.parent_path().generic_string();
-                        
-                        // 3. Reconstrói a árvore
-                        scene.root->fromJson(j, currentProjectPath);
-                        
-                        std::cout << "Projeto carregado! Diretorio ativo: " << currentProjectPath << std::endl;
-                    } else {
-                        std::cout << "Erro ao tentar ler o arquivo JSON selecionado!" << std::endl;
-                    }
-                }
+                LoadProject(scene);
             }
 
             // --- SALVAR ---
