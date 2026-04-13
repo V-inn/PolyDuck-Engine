@@ -1,3 +1,8 @@
+//TODO: - Refatorar o código para separar melhor as responsabilidades:
+// - main.cpp: Apenas o loop de renderização e callbacks
+// - Criar uma classe "Renderer" para lidar com a configuração do OpenGL, shaders e renderização em geral
+// - Criar uma classe "InputManager" para lidar com o teclado e mouse
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
@@ -558,8 +563,6 @@ int main() {
                 
                 // Pinta o ícone .png usando a cor escolhida para a luz no Inspetor!
                 glUniform4f(glGetUniformLocation(nossoShader.ID, "uBaseColor"), luz->lightColor.r, luz->lightColor.g, luz->lightColor.b, 1.0f);
-                
-                groundPlane.draw(); 
             }
         }
 
