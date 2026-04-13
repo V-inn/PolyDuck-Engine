@@ -19,8 +19,6 @@
 
 namespace fs = std::filesystem;
 
-std::string currentProjectPath = ""; 
-bool showSaveDialog = false;
 char projectNameBuf[128] = "MeuNovoJogo";
 char projectPathBuf[256] = "./Projetos";
 std::string saveErrorMsg = "";
@@ -107,7 +105,8 @@ static unsigned int CarregarTexturaDoArquivo(const char* path, bool isSkybox = f
 }
 
 // Função auxiliar para carregar o projeto e evitar repetição de código
-static bool LoadProject(Scene& scene) {
+// Agora passamos o SceneState como parâmetro também!
+static bool LoadProject(Scene& scene, SceneState& state) {
     std::string filePath = OpenFileDialog("Arquivos de Cena (*.json)\0*.json\0Todos os Arquivos (*.*)\0*.*\0");
     
     if (!filePath.empty()) {
@@ -117,23 +116,26 @@ static bool LoadProject(Scene& scene) {
             file >> j;
             file.close();
 
-            // 1. Limpa a cena velha
+            // 1. Limpa a seleção do Inspetor ANTES de deletar os objetos!
+            state.selectedNode = nullptr;
+            
+            // 2. Limpa a cena velha
             scene.root->clearNonSystemChildren();
             fs::path p(filePath);
             
-            // 2. Define o caminho do projeto globalmente
-            currentProjectPath = p.parent_path().generic_string();
+            // 3. Define o caminho do projeto globalmente
+            state.currentProjectPath = p.parent_path().generic_string();
             
-            // 3. Reconstrói a árvore
-            scene.root->fromJson(j, currentProjectPath);
+            // 4. Reconstrói a árvore
+            scene.root->fromJson(j, state.currentProjectPath);
             
-            std::cout << "Projeto carregado! Diretorio ativo: " << currentProjectPath << std::endl;
-            return true; // Sucesso!
+            std::cout << "Projeto carregado! Diretorio ativo: " << state.currentProjectPath << std::endl;
+            return true; 
         } else {
             std::cout << "Erro ao tentar ler o arquivo JSON selecionado!" << std::endl;
         }
     }
-    return false; // Usuário cancelou ou deu erro
+    return false;
 }
 
 UIManager::UIManager(GLFWwindow* window) {
@@ -181,42 +183,91 @@ void UIManager::beginFrame() {
 
 void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTexture) {
     static int currentTextureTarget = 0;
-    static bool showStartupModal = true; // Controla o modal inicial!
+    static bool showHubModal = true; 
 
     // ===================================================
-    // MODAL DE INICIALIZAÇÃO OBRIGATÓRIO
+    // PROJECT HUB
     // ===================================================
-    if (showStartupModal) {
-        ImGui::OpenPopup("Bem-vindo a PolyDuck Engine");
+    if (showHubModal) {
+        ImGui::OpenPopup("Project Hub");
     }
 
-    // Centraliza a janela na tela
+    // Configuração de posição e tamanho do Hub
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(500, 350), ImGuiCond_FirstUseEver);
 
-    // Flags: Sem barra de título, não pode mover, não pode fechar pelo 'X'
-    ImGuiWindowFlags modalFlags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse;
-    
-    if (ImGui::BeginPopupModal("Bem-vindo a PolyDuck Engine", NULL, modalFlags)) {
-        ImGui::Text("Nenhum projeto carregado.");
-        ImGui::Separator();
-        ImGui::Text("Para comecar, crie um novo projeto ou carregue um existente.");
-        ImGui::Spacing(); ImGui::Spacing();
+    // Se não houver projeto, o usuário é obrigado a interagir com o Hub (p_open = NULL)
+    bool* p_open = state.currentProjectPath.empty() ? NULL : &showHubModal;
 
-        if (ImGui::Button("Criar Novo Projeto", ImVec2(200, 50))) {
-            showSaveDialog = true;    // Abre a janela de Salvar Como
-            showStartupModal = false; // Esconde este modal temporariamente
-            ImGui::CloseCurrentPopup();
-        }
+    if (ImGui::BeginPopupModal("Project Hub", p_open, ImGuiWindowFlags_NoCollapse)) {
+        
+        if (ImGui::BeginTabBar("HubTabs")) {
+            
+            // --- ABA: NOVO PROJETO (Lógica unificada aqui) ---
+            if (ImGui::BeginTabItem("Novo Projeto")) {
+                ImGui::Spacing();
+                ImGui::TextWrapped("Configure o local do seu novo projeto:");
+                ImGui::Spacing();
 
-        ImGui::SameLine();
+                ImGui::InputText("Caminho Destino", projectPathBuf, 256);
+                ImGui::InputText("Nome do Projeto", projectNameBuf, 128);
+                
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
 
-        if (ImGui::Button("Carregar Projeto", ImVec2(200, 50))) {
-            if (LoadProject(scene)) {
-                // Se carregou com sucesso, destrava a UI e fecha o modal
-                showStartupModal = false;
-                ImGui::CloseCurrentPopup();
+                if (ImGui::Button("Criar e Iniciar", ImVec2(150, 40))) {
+                    fs::path targetDir = fs::path(projectPathBuf) / projectNameBuf;
+                    
+                    if (fs::exists(targetDir)) {
+                        saveErrorMsg = "Erro: Esta pasta ja existe!";
+                    } else {
+                        saveErrorMsg = ""; 
+                        fs::path assetsDir = targetDir / "user_assets";
+                        
+                        try {
+                            // Cria a estrutura de pastas
+                            fs::create_directories(assetsDir);
+                            
+                            // Salva a cena inicial
+                            json j = scene.root->toJson();
+                            fs::path jsonPath = targetDir / "cena.json";
+                            std::ofstream file(jsonPath);
+                            if (file.is_open()) {
+                                file << std::setw(4) << j << std::endl;
+                                file.close();
+                                
+                                // Define o diretório de trabalho da Engine
+                                state.currentProjectPath = targetDir.generic_string();
+                                showHubModal = false; // Fecha o Hub e libera a Engine
+                                ImGui::CloseCurrentPopup();
+                            }
+                        } catch (const fs::filesystem_error& e) {
+                            saveErrorMsg = std::string("Erro: ") + e.what();
+                        }
+                    }
+                }
+
+                if (!saveErrorMsg.empty()) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%s", saveErrorMsg.c_str());
+                }
+                ImGui::EndTabItem();
             }
+
+           if (ImGui::BeginTabItem("Carregar Existente")) {
+                ImGui::Spacing();
+                if (ImGui::Button(ICON_FA_FOLDER_OPEN " Selecionar arquivo .json", ImVec2(250, 50))) {
+                    
+                    if (LoadProject(scene, state)) { 
+                        showHubModal = false;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                ImGui::EndTabItem();
+            }
+
+            ImGui::EndTabBar();
         }
         ImGui::EndPopup();
     }
@@ -246,27 +297,30 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
         if (ImGui::BeginMenu("Arquivo")) {
             // --- NOVA CENA ---
             if (ImGui::MenuItem("Nova Cena", "Ctrl+N")) {
+                
+                state.selectedNode = nullptr; 
+                
                 scene.root->clearNonSystemChildren();
-                currentProjectPath = ""; 
+                state.currentProjectPath = ""; 
                 std::cout << "Nova cena criada! A memoria foi limpa." << std::endl;
                 
-                showSaveDialog = true; 
+                showHubModal = true; 
             }
 
             // --- CARREGAR CENA ---
             if (ImGui::MenuItem("Carregar Cena", "Ctrl+O")) {
-                LoadProject(scene);
+                LoadProject(scene, state);
             }
 
             // --- SALVAR ---
             if (ImGui::MenuItem("Salvar", "Ctrl+S")) {
-                if (currentProjectPath.empty()) {
-                    // É a primeira vez salvando! Abre a nossa nova interface.
-                    showSaveDialog = true;
+                if (state.currentProjectPath.empty()) {
+                    // Nenhum projeto ainda, força o usuário a escolher onde salvar (mesma janela do Hub)
+                    showHubModal = true;
                 } else {
                     // Já temos um projeto, salva silenciosamente (Quick Save)
                     json j = scene.root->toJson();
-                    fs::path savePath = fs::path(currentProjectPath) / "cena.json";
+                    fs::path savePath = fs::path(state.currentProjectPath) / "cena.json";
                     
                     std::ofstream file(savePath);
                     if (file.is_open()) {
@@ -288,7 +342,6 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
             ImGui::EndMenu();
         }
         
-        // --- O SEU MENU DE ADICIONAR CONTINUA INTACTO AQUI ---
         if (ImGui::BeginMenu("Adicionar")) {
             if (ImGui::MenuItem("Pasta (Folder)")) { 
                 scene.root->addChild(new SceneNode("Nova Pasta", NodeType::FOLDER)); 
@@ -304,14 +357,14 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
                 
                 if (!filePath.empty()) {
                     fs::path sourcePath(filePath);
-                    std::string fileName = sourcePath.filename().string();
+                    std::string fileName = sourcePath.filename().generic_string();
                     
                     std::string pathToLoad = filePath; 
                     std::string pathToSave = filePath; 
                     
                     // Se tivermos um projeto aberto, copiamos o arquivo para a pasta dele!
-                    if (!currentProjectPath.empty()) {
-                        fs::path destPath = fs::path(currentProjectPath) / "user_assets" / fileName;
+                    if (!state.currentProjectPath.empty()) {
+                        fs::path destPath = fs::path(state.currentProjectPath) / "user_assets" / fileName;
                         
                         try {
                             // Copia o arquivo para o nosso projeto (substitui se já existir)
@@ -341,74 +394,6 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
-    }
-
-    // ---------------------------------------------------
-    // INTERFACE DE CRIAÇÃO DE PROJETO (SALVAR COMO)
-    // ---------------------------------------------------
-    if (showSaveDialog) {
-        // Uma janela que fica no meio da tela
-        ImGui::SetNextWindowSize(ImVec2(400, 200), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Salvar Novo Projeto", &showSaveDialog);
-        
-        ImGui::TextWrapped("Escolha o local e o nome do seu novo projeto. Uma pasta sera criada automaticamente com a estrutura da engine.");
-        ImGui::Spacing();
-
-        ImGui::InputText("Caminho Destino", projectPathBuf, 256);
-        ImGui::InputText("Nome do Projeto", projectNameBuf, 128);
-        
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        if (ImGui::Button("Criar e Salvar Projeto", ImVec2(150, 30))) {
-            
-            fs::path targetDir = fs::path(projectPathBuf) / projectNameBuf;
-            
-            // +++ A NOSSA PROTEÇÃO +++
-            if (fs::exists(targetDir)) {
-                // Bloqueia e avisa o usuário!
-                saveErrorMsg = "Erro: Ja existe um projeto com esse nome neste local!";
-            } else {
-                // O caminho está livre! Pode criar.
-                saveErrorMsg = ""; // Limpa qualquer erro antigo
-                fs::path assetsDir = targetDir / "user_assets";
-                
-                try {
-                    fs::create_directories(assetsDir);
-                    
-                    json j = scene.root->toJson();
-                    fs::path jsonPath = targetDir / "cena.json";
-                    std::ofstream file(jsonPath);
-                    
-                    if (file.is_open()) {
-                        file << std::setw(4) << j << std::endl;
-                        file.close();
-                        
-                        // +++ CORREÇÃO 3: Caminho do projeto recém-criado padronizado +++
-                        currentProjectPath = targetDir.generic_string();
-                        showSaveDialog = false; // Fecha a janelinha
-                        
-                        std::cout << "Projeto estruturado com sucesso em: " << currentProjectPath << std::endl;
-                    }
-                } catch (const fs::filesystem_error& e) {
-                    saveErrorMsg = std::string("Erro do Sistema: ") + e.what();
-                }
-            }
-        }
-        
-        ImGui::SameLine();
-        if (ImGui::Button("Cancelar", ImVec2(100, 30))) {
-            showSaveDialog = false;
-            saveErrorMsg = ""; // Limpa o erro se o usuário desistir
-        }
-
-        if (!saveErrorMsg.empty()) {
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%s", saveErrorMsg.c_str());
-        }
-
-        ImGui::End();
     }
 
     // ---------------------------------------------------
@@ -652,7 +637,7 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
     ImGui::Begin("Navegador de Arquivos");
     
     // 1. Descobre qual pasta ler (A do projeto atual, ou uma global se for cena nova)
-    std::string assetsDir = currentProjectPath.empty() ? "./user_assets" : (std::filesystem::path(currentProjectPath) / "user_assets").string();
+    std::string assetsDir = state.currentProjectPath.empty() ? "./user_assets" : (std::filesystem::path(state.currentProjectPath) / "user_assets").generic_string();
 
     ImGui::Text("Diretorio: %s", assetsDir.c_str());
     ImGui::Separator();
@@ -660,10 +645,10 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
     // 2. Proteção: Só tenta varrer se a pasta realmente existir no Windows
     if (std::filesystem::exists(assetsDir)) {
         for (const auto& entry : std::filesystem::directory_iterator(assetsDir)) {
-            std::string path = entry.path().string();
-            std::string extension = entry.path().extension().string();
-            std::string filename = entry.path().filename().string();
-            std::string nodeName = entry.path().stem().string(); 
+            std::string path = entry.path().generic_string();
+            std::string extension = entry.path().extension().generic_string();
+            std::string filename = entry.path().filename().generic_string();
+            std::string nodeName = entry.path().stem().generic_string(); 
 
             if (extension == ".obj") {
                 std::string buttonLabel = std::string(ICON_FA_CUBE) + " " + filename;

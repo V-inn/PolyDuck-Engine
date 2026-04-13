@@ -233,7 +233,7 @@ void SceneNode::fromJson(const json& j, const std::string& currentProjectPath) {
                 }
                 
                 if (!savedPath.empty() && std::filesystem::exists(fullPath)) {
-                    Model* loadedModel = new Model(fullPath.string());
+                    Model* loadedModel = new Model(fullPath.generic_string());
                     loadedModel->filePath = savedPath; 
                     childMesh = loadedModel;
                 } else {

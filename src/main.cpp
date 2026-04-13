@@ -90,19 +90,21 @@ void processInput(GLFWwindow *window) {
 }
 
 void drop_callback(GLFWwindow* window, int count, const char** paths) {
-    // Garante que a pasta existe
-    if (!fs::exists("./user_assets")) {
-        fs::create_directory("./user_assets");
+    SceneState* state = static_cast<SceneState*>(glfwGetWindowUserPointer(window));
+
+    std::string targetDir = state->currentProjectPath.empty() ? "./user_assets" : state->currentProjectPath + "/user_assets";
+    
+    if (!fs::exists(targetDir)) {
+        fs::create_directories(targetDir);
     }
 
     for (int i = 0; i < count; i++) {
-        fs::path sourcePath(paths[i]); // O caminho original do arquivo no PC do usuário
-        fs::path destinationPath = fs::path("./user_assets") / sourcePath.filename();
+        fs::path sourcePath(paths[i]); 
+        fs::path destinationPath = fs::path(targetDir) / sourcePath.filename();
 
         try {
-            // Copia o arquivo para a nossa pasta. overwrite_existing substitui se já tiver um igual.
             fs::copy(sourcePath, destinationPath, fs::copy_options::overwrite_existing);
-            std::cout << "[Importacao] Arquivo copiado com sucesso: " << destinationPath << std::endl;
+            std::cout << "[Importacao] Arquivo copiado para: " << destinationPath.generic_string() << std::endl;
         } catch (const fs::filesystem_error& e) {
             std::cerr << "[Erro] Falha ao copiar arquivo: " << e.what() << std::endl;
         }
@@ -345,6 +347,7 @@ int main() {
     minhaCena.environment->skyboxTexture = panoramaTexture;
 
     SceneState sceneState;
+    glfwSetWindowUserPointer(window, &sceneState);
     UIManager uiManager(window);
 
     // Loop de Renderização
