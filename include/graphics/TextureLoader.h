@@ -1,12 +1,12 @@
 #ifndef TEXTURELOADER_H
 #define TEXTURELOADER_H
 
-#include <glad/glad.h>
-#include <stb_image.h>
-#include <vector>
-#include <string>
-#include <iostream>
+#pragma once
 
-unsigned int loadCubemap(std::vector<std::string> faces);
+class TextureLoader {
+public:
+    // Função estática para podermos chamá-la de qualquer lugar sem instanciar a classe
+    static unsigned int loadTexture(char const * path);
+};
 
 #endif
