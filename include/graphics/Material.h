@@ -1,20 +1,28 @@
+// include/graphics/Material.h (Exemplo de como deve ficar)
 #ifndef MATERIAL_H
 #define MATERIAL_H
 
 #include <glm/glm.hpp>
+#include "JsonHelpers.h" // Importa a nossa regra de GLM
 
 struct Material {
-    // 1. Cores e Propriedades Físicas Globais
-    glm::vec4 baseColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    float specularStrength = 0.5f; // Força do reflexo (0.0 a 1.0)
-    float shininess = 32.0f;       // Nível de polimento (2 a 256)
-    float reflectivity = 0.0f;      // Nível de refletividade (0.0 a 1.0)
+    glm::vec4 baseColor = glm::vec4(1.0f);
+    float specularStrength = 0.5f;
+    float shininess = 32.0f;
+    float reflectivity = 0.0f;
+    
+    // NOTA: Texturas em OpenGL (unsigned int) não podem ser salvas porque o ID muda toda vez
+    // que o PC liga. Você precisará adicionar std::string diffusePath; etc., futuramente.
+    unsigned int diffuseMap = 0; 
+    unsigned int specularMap = 0;
+    unsigned int normalMap = 0;
 
-    // 2. Mapas de Textura (0 significa que não tem mapa aplicado)
-    unsigned int diffuseMap = 0;   // A textura principal (cor)
-    unsigned int specularMap = 0;  // Mapa de onde brilha mais
-    unsigned int normalMap = 0;    // Mapa de relevo falso para a luz
-    unsigned int heightMap = 0;    // Mapa de profundidade (Parallax)
+    std::string diffusePath = "";
+    std::string specularPath = "";
+    std::string normalPath = "";
+
+    // Sempre que criar uma propriedade nova no Material, só adicione o nome dela aqui dentro:
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Material, baseColor, specularStrength, shininess, reflectivity, diffusePath, specularPath, normalPath)
 
     static unsigned int GetDefaultTexture();
 };

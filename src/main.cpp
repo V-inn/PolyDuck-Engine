@@ -344,7 +344,7 @@ int main() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0); 
     // =======================================================
 
-    minhaCena.environment->skyboxTexture = panoramaTexture;
+    minhaCena.environment->environment->skyboxTexture = panoramaTexture;
 
     SceneState sceneState;
     glfwSetWindowUserPointer(window, &sceneState);
@@ -391,7 +391,7 @@ int main() {
         // =====================================================================
         
         // 1. Matrizes da "Câmera do Sol"
-        glm::vec3 sunDir = glm::normalize(minhaCena.environment->sunDirection);
+        glm::vec3 sunDir = glm::normalize(minhaCena.environment->environment->sunDirection);
         glm::vec3 lightPos = -sunDir * 20.0f; // Afasta a câmera do sol para ela "ver" o chão
         glm::mat4 lightProjection = glm::ortho(-15.0f, 15.0f, -15.0f, 15.0f, 1.0f, 50.0f);
         glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
@@ -463,18 +463,17 @@ int main() {
             nossoShader.setVec3("viewPos", camera.Position);
             
             // --- AMBIENT COLOR E REFLEXOS DO ENVIRONMENT ---
-            nossoShader.setVec3("uAmbientColor", minhaCena.environment->ambientColor);
-            nossoShader.setVec3("uSunDirection", minhaCena.environment->sunDirection);
-            nossoShader.setVec3("uSunColor", minhaCena.environment->sunColor);
-            nossoShader.setFloat("uSunIntensity", minhaCena.environment->sunIntensity);
+            nossoShader.setVec3("uAmbientColor", minhaCena.environment->environment->ambientColor);
+            nossoShader.setVec3("uSunDirection", minhaCena.environment->environment->sunDirection);
+            nossoShader.setVec3("uSunColor", minhaCena.environment->environment->sunColor);
+            nossoShader.setFloat("uSunIntensity", minhaCena.environment->environment->sunIntensity);
 
-            // +++ A MÁGICA ACONTECE AQUI +++
             // Passamos a matriz da foto do sol para o shader poder comparar as distâncias
             nossoShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
 
             // Conecta a Textura do Skybox (Porta 15)
             glActiveTexture(GL_TEXTURE15);
-            glBindTexture(GL_TEXTURE_2D, minhaCena.environment->skyboxTexture);
+            glBindTexture(GL_TEXTURE_2D, minhaCena.environment->environment->skyboxTexture);
             
             // Conecta a Textura do Shadow Map (Porta 16)
             glActiveTexture(GL_TEXTURE16);
@@ -522,13 +521,13 @@ int main() {
             skyboxShader.setMat4("view", viewSkybox); // Passa a matriz sem posição!
             skyboxShader.setMat4("projection", projection);
 
-            skyboxShader.setVec3("uSunDirection", minhaCena.environment->sunDirection);
-            skyboxShader.setVec3("uSunColor", minhaCena.environment->sunColor);
+            skyboxShader.setVec3("uSunDirection", minhaCena.environment->environment->sunDirection);
+            skyboxShader.setVec3("uSunColor", minhaCena.environment->environment->sunColor);
 
             // 3. Desenha o Cubo
             glBindVertexArray(skyboxVAO);
             glActiveTexture(GL_TEXTURE15);
-            glBindTexture(GL_TEXTURE_2D, minhaCena.environment->skyboxTexture);
+            glBindTexture(GL_TEXTURE_2D, minhaCena.environment->environment->skyboxTexture);
             glDrawArrays(GL_TRIANGLES, 0, 36);
             glBindVertexArray(0);
 
@@ -541,13 +540,18 @@ int main() {
         // ---------------------------------------------------------------------
         // Desenhamos por último para a transparência do .png não "furar" o cenário 3D!
         if (!sceneState.wireframeMode) {
-            glActiveTexture(GL_TEXTURE0);
             nossoShader.use();
             nossoShader.setMat4("projection", projection);
             nossoShader.setMat4("view", view);
-            nossoShader.setBool("uAffectedByLight", false); 
-            nossoShader.setBool("uHasTexture", true); // <-- OBRIGATÓRIO AQUI!
             
+            nossoShader.setBool("uAffectedByLight", false); 
+            nossoShader.setBool("uHasTexture", true);
+            nossoShader.setBool("uHasSpecularMap", false); // Desliga os mapas do objeto anterior
+            nossoShader.setBool("uHasNormalMap", false);   // Desliga os mapas do objeto anterior
+            nossoShader.setInt("diffuseMap", 0);           // Obriga a ler da Porta 0
+            // -------------------------------------------------------------------------
+
+            glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, lightIconTexture);
 
             for (auto luz : listaDeLuzes) {
@@ -560,12 +564,14 @@ int main() {
                 iconModel[2][0] = view[0][2]; iconModel[2][1] = view[1][2]; iconModel[2][2] = view[2][2];
                 
                 iconModel = glm::rotate(iconModel, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-                iconModel = glm::scale(iconModel, glm::vec3(0.025f)); // Ajuste este valor se o ícone ficar muito grande
+                iconModel = glm::scale(iconModel, glm::vec3(0.025f)); 
                 
                 nossoShader.setMat4("model", iconModel);
                 
-                // Pinta o ícone .png usando a cor escolhida para a luz no Inspetor!
+                // Pinta o ícone usando a cor da luz (Alpha forçado em 1.0f para não ficar invisível)
                 glUniform4f(glGetUniformLocation(nossoShader.ID, "uBaseColor"), luz->lightColor.r, luz->lightColor.g, luz->lightColor.b, 1.0f);
+                
+                groundPlane.draw(); 
             }
         }
 

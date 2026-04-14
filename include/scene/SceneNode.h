@@ -11,11 +11,24 @@
 #include "graphics/Shader.h"
 #include "graphics/Material.h"
 #include "json.hpp"
+#include "graphics/JsonHelpers.h" 
 
 using json = nlohmann::json;
 
 // 1. As nossas categorias oficiais!
 enum class NodeType { MESH, LIGHT, CAMERA, FOLDER, BILLBOARD, ENVIRONMENT };
+
+
+struct Environment {
+    glm::vec3 ambientColor = glm::vec3(0.2f);
+    glm::vec3 sunDirection = glm::vec3(-0.2f, -1.0f, -0.3f);
+    glm::vec3 sunColor = glm::vec3(1.0f);
+    float sunIntensity = 1.0f;
+    unsigned int skyboxTexture = 0;
+
+    // Esta macro automatiza tudo para o struct!
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Environment, ambientColor, sunDirection, sunColor, sunIntensity)
+};
 
 class SceneNode {
 public:
@@ -45,12 +58,7 @@ public:
     SceneNode* parent;
     std::vector<SceneNode*> children;
 
-    //Environment variables
-    glm::vec3 ambientColor;
-    unsigned int skyboxTexture;
-    glm::vec3 sunDirection;
-    glm::vec3 sunColor;
-    float sunIntensity;
+    Environment* environment = nullptr;
 
     // 3. Atualizamos o construtor para pedir o Tipo
     SceneNode(std::string name, NodeType type = NodeType::FOLDER, Primitive* mesh = nullptr);

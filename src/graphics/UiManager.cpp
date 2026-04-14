@@ -608,19 +608,20 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
             ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "[Configuracoes Globais]");
             ImGui::Separator();
             
-            ImGui::ColorEdit3("Cor Ambiente", glm::value_ptr(state.selectedNode->ambientColor));
+            // Adicione ->environment-> antes das variáveis!
+            ImGui::ColorEdit3("Cor Ambiente", glm::value_ptr(state.selectedNode->environment->ambientColor));
 
             ImGui::Separator();
             ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.2f, 1.0f), "[Luz Direcional (Sol)]");
-            ImGui::DragFloat3("Direcao", glm::value_ptr(state.selectedNode->sunDirection), 0.01f);
-            ImGui::ColorEdit3("Cor do Sol", glm::value_ptr(state.selectedNode->sunColor));
-            ImGui::DragFloat("Intensidade do Sol", &state.selectedNode->sunIntensity, 0.05f, 0.0f, 10.0f);
+            ImGui::DragFloat3("Direcao", glm::value_ptr(state.selectedNode->environment->sunDirection), 0.01f);
+            ImGui::ColorEdit3("Cor do Sol", glm::value_ptr(state.selectedNode->environment->sunColor));
+            ImGui::DragFloat("Intensidade do Sol", &state.selectedNode->environment->sunIntensity, 0.05f, 0.0f, 10.0f);
             
             ImGui::Separator();
             ImGui::Text("Skybox Panoramico:");
-            ImGui::RadioButton("Aplicar Imagem ao Skybox", &currentTextureTarget, 3); // O novo alvo 3!
+            ImGui::RadioButton("Aplicar Imagem ao Skybox", &currentTextureTarget, 3);
             
-            if (state.selectedNode->skyboxTexture != 0) {
+            if (state.selectedNode->environment->skyboxTexture != 0) {
                 ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Skybox Carregado!");
             } else {
                 ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Nenhum Skybox!");
@@ -667,22 +668,32 @@ void UIManager::render(SceneState& state, Scene& scene, unsigned int sceneTextur
                 if (ImGui::Button(buttonLabel.c_str())) {
                     if (state.selectedNode != nullptr) {
                         bool isSkyboxTarget = (currentTextureTarget == 3);
-                        // Como a textura está no mesmo projeto, podemos carregar direto
+                        
+                        // 1. Gera o ID da textura na GPU 
                         unsigned int novaTextura = CarregarTexturaDoArquivo(path.c_str(), isSkyboxTarget);
+                        
+                        // 2. Cria o caminho relativo que será salvo no JSON
+                        // Como os assets sempre ficam na pasta user_assets do projeto:
+                        std::string relativePath = "user_assets/" + filename;
                         
                         if (state.selectedNode->type == NodeType::MESH || state.selectedNode->type == NodeType::BILLBOARD) {
                             if (currentTextureTarget == 0) {
                                 state.selectedNode->material.diffuseMap = novaTextura;
+                                state.selectedNode->material.diffusePath = relativePath; 
                             } else if (currentTextureTarget == 1) {
                                 state.selectedNode->material.specularMap = novaTextura;
+                                state.selectedNode->material.specularPath = relativePath; 
                             } else if (currentTextureTarget == 2) {
                                 state.selectedNode->material.normalMap = novaTextura;
+                                state.selectedNode->material.normalPath = relativePath;   
                                 std::cout << "Normal Map aplicado!" << std::endl;
                             }
                         }
                         else if (state.selectedNode->type == NodeType::ENVIRONMENT) {
                             if (currentTextureTarget == 3){
-                                state.selectedNode->skyboxTexture = novaTextura;
+                                state.selectedNode->environment->skyboxTexture = novaTextura;
+                                // Nota: Para o skybox persistir, você precisaria adicionar uma string skyboxPath 
+                                // na struct Environment e salvar aqui também (state.selectedNode->environment->skyboxPath = relativePath;)
                             }
                         }
                     }
@@ -761,6 +772,7 @@ void UIManager::DrawHierarchyNode(SceneNode* node, SceneState& state, SceneNode*
                 oldParentNode = oldParent;
             }
         }
+        
         ImGui::EndDragDropTarget();
     }
 

@@ -2,22 +2,31 @@
 #include "graphics/Material.h"
 #include "graphics/Primitives.h"
 #include "graphics/Model.h"
+#include "graphics/JsonHelpers.h"
+#include "graphics/TextureLoader.h"
 
 SceneNode::SceneNode(std::string name, NodeType type, Primitive* mesh) 
     : name(name), type(type), mesh(mesh), parent(nullptr), 
       position(0.0f), rotation(0.0f), scale(1.0f),
-      affectedByLight(type != NodeType::BILLBOARD), // Billboards iniciam a 'false'
+      affectedByLight(type != NodeType::BILLBOARD),
       lightColor(1.0f, 1.0f, 1.0f), lightIntensity(1.0f),
-      fov(45.0f)
-{}
+      fov(45.0f), environment(nullptr) // Inicializa nulo
+{
+    if (type == NodeType::ENVIRONMENT) {
+        environment = new Environment();
+    }
+}
 
 SceneNode::~SceneNode() {
-    // Limpa os filhos da memória quando este nó for destruído
+    // Limpa o environment para não vazar memória
+    if (environment != nullptr) {
+        delete environment;
+    }
+
     for (auto child : children) {
         delete child;
     }
 }
-
 void SceneNode::addChild(SceneNode* child) {
     child->parent = this;
     children.push_back(child);
@@ -78,7 +87,7 @@ void SceneNode::draw(Shader& shader, const glm::mat4& viewMatrix, glm::mat4 pare
         if (material.diffuseMap != 0) {
             glBindTexture(GL_TEXTURE_2D, material.diffuseMap); 
         } else {
-            glBindTexture(GL_TEXTURE_2D, Material::GetDefaultTexture()); 
+            glBindTexture(GL_TEXTURE_2D, Material::GetDefaultTexture());
         }
         shader.setInt("diffuseMap", 0); 
 
@@ -116,16 +125,27 @@ void SceneNode::draw(Shader& shader, const glm::mat4& viewMatrix, glm::mat4 pare
 
 json SceneNode::toJson() {
     json j;
-    
-    // 1. Salva os dados básicos
     j["name"] = name;
-    j["type"] = static_cast<int>(type); // Salva o Enum como um número
+    j["type"] = static_cast<int>(type);
     
-    // 2. Salva Vetores (O nlohmann converte arrays do C++ para arrays do JSON lindamente)
-    // Assumindo que você tem transformações no seu SceneNode:
-    j["position"] = { position.x, position.y, position.z };
-    j["rotation"] = { rotation.x, rotation.y, rotation.z };
-    j["scale"]    = { scale.x, scale.y, scale.z };
+    // Olha como fica dinâmico! Não precisamos mais separar eixos.
+    j["position"] = position;
+    j["rotation"] = rotation;
+    j["scale"] = scale;
+    
+    // Salva o material INTEIRO de uma vez, usando a regra do Macro que criamos no .h
+    j["material"] = material;
+    
+    j["affectedByLight"] = affectedByLight;
+
+    if (type == NodeType::LIGHT) {
+        j["lightColor"] = lightColor;
+        j["lightIntensity"] = lightIntensity;
+    }
+
+    if (type == NodeType::ENVIRONMENT && environment != nullptr) {
+        j["environment_data"] = *environment;
+    }
 
     if (this->mesh != nullptr) {
         // Se for um modelo importado, salvamos o tipo e o caminho do arquivo
@@ -147,16 +167,6 @@ json SceneNode::toJson() {
         j["meshType"] = "none"; // Nós como Pastas ou Luzes não têm malha
     }
 
-    // 3. Propriedades Específicas de Sistemas (O seu Environment!)
-    if (type == NodeType::ENVIRONMENT) {
-        j["ambientColor"] = { ambientColor.x, ambientColor.y, ambientColor.z };
-        j["sunDirection"] = { sunDirection.x, sunDirection.y, sunDirection.z };
-        j["sunColor"]     = { sunColor.x, sunColor.y, sunColor.z };
-        j["sunIntensity"] = sunIntensity;
-        // Nota: Não salvamos o ID da textura (skyboxTexture), porque esse ID (ex: 15) 
-        // muda toda vez que abrimos a engine. Para texturas, salvaríamos o caminho (path) do arquivo!
-    }
-
     // 4. A RECURSÃO: Salva todos os filhos dentro de uma lista JSON!
     j["children"] = json::array();
     for (SceneNode* child : children) {
@@ -170,43 +180,57 @@ json SceneNode::toJson() {
 }
 
 void SceneNode::fromJson(const json& j, const std::string& currentProjectPath) {
-    // 1. Carrega dados básicos usando o .value() para EXTENSIBILIDADE!
-    // Se "name" não existir no arquivo, ele usa "Node Desconhecido"
-    name = j.value("name", name);
-    type = static_cast<NodeType>(j.value("type", 0));
+    this->name = j.value("name", "Objeto");
+    this->type = static_cast<NodeType>(j.value("type", 0));
 
-    // 2. Carrega Vetores (Com checagem de segurança)
-    if (j.contains("position")) {
-         position.x = j["position"][0];
-         position.y = j["position"][1];
-         position.z = j["position"][2];
+    // Carrega o vetor inteiro de uma vez
+    if (j.contains("position")) this->position = j["position"];
+    if (j.contains("rotation")) this->rotation = j["rotation"];
+    if (j.contains("scale"))    this->scale = j["scale"];
+    
+    if (j.contains("material")) {
+        this->material = j["material"].get<Material>();
+
+        // --- RECARREGAMENTO DINÂMICO DE TEXTURAS ---
+        
+        // 1. Diffuse Map
+        if (!this->material.diffusePath.empty()) {
+            std::string fullPath = (std::filesystem::path(currentProjectPath) / this->material.diffusePath).generic_string();
+            if (std::filesystem::exists(fullPath)) {
+                this->material.diffuseMap = TextureLoader::loadTexture(fullPath.c_str());
+            }
+        }
+
+        // 2. Specular Map
+        if (!this->material.specularPath.empty()) {
+            std::string fullPath = (std::filesystem::path(currentProjectPath) / this->material.specularPath).generic_string();
+            if (std::filesystem::exists(fullPath)) {
+                this->material.specularMap = TextureLoader::loadTexture(fullPath.c_str());
+            }
+        }
+
+        // 3. Normal Map
+        if (!this->material.normalPath.empty()) {
+            std::string fullPath = (std::filesystem::path(currentProjectPath) / this->material.normalPath).generic_string();
+            if (std::filesystem::exists(fullPath)) {
+                this->material.normalMap = TextureLoader::loadTexture(fullPath.c_str());
+            }
+        }
     }
-    if (j.contains("rotation")) {
-         rotation.x = j["rotation"][0];
-         rotation.y = j["rotation"][1];
-         rotation.z = j["rotation"][2];
-    }
-    if (j.contains("scale")) {
-         scale.x = j["scale"][0];
-         scale.y = j["scale"][1];
-         scale.z = j["scale"][2];
+    
+    this->affectedByLight = j.value("affectedByLight", true);
+
+    if (this->type == NodeType::LIGHT) {
+        if (j.contains("lightColor")) this->lightColor = j["lightColor"];
+        this->lightIntensity = j.value("lightIntensity", 1.0f);
     }
 
-    // 3. Propriedades do Environment
-    if (type == NodeType::ENVIRONMENT) {
-        if (j.contains("ambientColor")) {
-            ambientColor = glm::vec3(j["ambientColor"][0], j["ambientColor"][1], j["ambientColor"][2]);
+    if (this->type == NodeType::ENVIRONMENT && this->environment != nullptr) {
+        if (j.contains("environment_data")) {
+            *this->environment = j["environment_data"].get<Environment>();
         }
-        if (j.contains("sunDirection")) {
-            sunDirection = glm::vec3(j["sunDirection"][0], j["sunDirection"][1], j["sunDirection"][2]);
-        }
-        if (j.contains("sunColor")) {
-            sunColor = glm::vec3(j["sunColor"][0], j["sunColor"][1], j["sunColor"][2]);
-        }
-        sunIntensity = j.value("sunIntensity", 1.0f); // Valor padrão de 1.0
     }
 
-    // 4. A RECURSÃO: Recria os filhos!
     if (j.contains("children")) {
         for (const json& childJson : j["children"]) {
             
